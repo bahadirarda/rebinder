@@ -1,0 +1,26 @@
+{
+  "repositories": [
+    {
+      "root": ".",
+      "vcs": "git",
+      "head": {
+        "commit": "0123456789abcdef0123456789abcdef01234567",
+        "branch": "main",
+        "detached": false
+      },
+      "remotes": [
+        {
+          "name": "origin",
+          "redacted": true
+        }
+      ],
+      "changes": [
+        {
+          "path": "src/validation.rs",
+          "status": "added",
+          "staged": false
+        }
+      ]
+    }
+  ]
+}

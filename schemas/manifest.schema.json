@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rebinder.dev/schemas/0.1.0/manifest.schema.json",
+  "title": "Rebinder package manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "schemaVersion", "source", "files"],
+  "properties": {
+    "format": { "const": "rebinder.session" },
+    "schemaVersion": { "const": "0.1.0" },
+    "source": { "$ref": "#/$defs/source" },
+    "files": {
+      "type": "array",
+      "minItems": 7,
+      "items": { "$ref": "#/$defs/file" }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "adapterVersion"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "harnessVersion": { "type": "string", "minLength": 1 },
+        "adapterVersion": { "type": "string", "minLength": 1 }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "mediaType", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+        },
+        "mediaType": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

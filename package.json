@@ -1,0 +1,32 @@
+{
+  "name": "rebinder",
+  "version": "0.20260817.0",
+  "description": "Release tooling for the Rebinder Rust CLI.",
+  "private": true,
+  "packageManager": "bun@1.3.14",
+  "type": "module",
+  "author": "bahadirarda",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bahadirarda/rebinder.git"
+  },
+  "homepage": "https://github.com/bahadirarda/rebinder",
+  "bugs": {
+    "url": "https://github.com/bahadirarda/rebinder/issues"
+  },
+  "scripts": {
+    "build": "cargo build --release --locked",
+    "check": "bun run check:release && bun run check:docs && bun run check:rust",
+    "check:docs": "bun scripts/validate-docs.ts",
+    "check:release": "bun test scripts/release && bun scripts/release/validate.ts",
+    "check:rust": "cargo fmt --all --check && cargo clippy --all-targets --all-features --locked -- -D warnings && cargo test --all-features --locked",
+    "changeset": "changeset",
+    "changeset:status": "changeset status --verbose",
+    "version:check": "bun scripts/release/validate.ts",
+    "version:next": "bun scripts/release/next-version.ts",
+    "version:packages": "bun scripts/release/version-packages.ts"
+  },
+  "devDependencies": {
+    "@changesets/cli": "3.0.0"
+  }
+}

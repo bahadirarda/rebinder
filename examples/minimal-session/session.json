@@ -1,0 +1,8 @@
+{
+  "id": "example-session",
+  "title": "Implement Rebinder validation core",
+  "createdAt": "2026-08-17T09:00:00Z",
+  "updatedAt": "2026-08-17T09:15:00Z",
+  "sourceSessionId": "codex-example-001",
+  "labels": ["example", "rust"]
+}

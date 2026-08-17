@@ -1,0 +1,46 @@
+{
+  "format": "rebinder.session",
+  "schemaVersion": "0.1.0",
+  "source": {
+    "provider": "codex",
+    "harnessVersion": "example",
+    "adapterVersion": "0.1.0"
+  },
+  "files": [
+    {
+      "path": "session.json",
+      "mediaType": "application/json",
+      "sha256": "9fb9dc9a99990ee491770eec3cf168358cce17300e5b3edb9d977b27e43977fb"
+    },
+    {
+      "path": "conversation.jsonl",
+      "mediaType": "application/x-ndjson",
+      "sha256": "0afe54472a00f775e35a5b38a9e6ce301d0dd84343436d4acb73c2d658c2f1c3"
+    },
+    {
+      "path": "task-state.json",
+      "mediaType": "application/json",
+      "sha256": "074e875b09e96b3f322d6b3aac07d63bc9c74667b0ab11cae647390fedafc9b6"
+    },
+    {
+      "path": "workspace-state.json",
+      "mediaType": "application/json",
+      "sha256": "205f3823ec17f0efafc50862c3bb78bbbb9a92c312f7e37bb21a0468afe76324"
+    },
+    {
+      "path": "repository-state.json",
+      "mediaType": "application/json",
+      "sha256": "270b43d3a0840cef8d88ba421f5eae47fe058c5410627c23a4540661fcfa411e"
+    },
+    {
+      "path": "handoff.md",
+      "mediaType": "text/markdown",
+      "sha256": "ed22837c0ddf7b4571873f59a4d142e1ae9f6c990f324524afbc5ac201a03d7e"
+    },
+    {
+      "path": "provenance.json",
+      "mediaType": "application/json",
+      "sha256": "a6e4ad5207b93c88bceabee0ee27e31a3fc25492cd56c55c2089f0b2da61c57e"
+    }
+  ]
+}

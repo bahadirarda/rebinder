@@ -1,0 +1,21 @@
+{
+  "cwd": ".",
+  "roots": [
+    {
+      "path": ".",
+      "kind": "repository"
+    }
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "state": "tracked"
+    }
+  ],
+  "environment": [
+    {
+      "name": "OPENAI_API_KEY",
+      "redacted": true
+    }
+  ]
+}

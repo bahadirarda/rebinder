@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a reproducible Rebinder defect without sensitive session data.
+title: "bug: "
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach real sessions, credentials, tokens, or private transcripts.
+  - type: input
+    id: version
+    attributes:
+      label: Rebinder version
+      placeholder: "0.20260817.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Linux x86-64, Linux ARM64, macOS Intel, macOS Apple silicon, Windows x86-64, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Use synthetic or fully redacted data.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: This report contains no secrets or private session data.
+          required: true

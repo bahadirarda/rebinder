@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rebinder.dev/schemas/0.1.0/provenance.schema.json",
+  "title": "Canonical export provenance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source", "exportedAt", "transformations", "redactions"],
+  "properties": {
+    "source": { "$ref": "#/$defs/source" },
+    "exportedAt": { "type": "string", "format": "date-time" },
+    "transformations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/transformation" }
+    },
+    "redactions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/redaction" }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "adapterVersion"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "harnessVersion": { "type": "string", "minLength": 1 },
+        "adapterVersion": { "type": "string", "minLength": 1 }
+      }
+    },
+    "transformation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "details": { "type": "string" }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "location", "count"],
+      "properties": {
+        "category": { "enum": ["credential", "token", "environment", "provider_private", "user_defined"] },
+        "location": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

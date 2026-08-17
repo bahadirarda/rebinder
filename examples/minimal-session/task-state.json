@@ -1,0 +1,25 @@
+{
+  "intent": "Build the provider-neutral validation core.",
+  "status": "in_progress",
+  "plan": [
+    {
+      "id": "step-1",
+      "description": "Define the canonical package schemas.",
+      "status": "completed"
+    },
+    {
+      "id": "step-2",
+      "description": "Implement provider adapters.",
+      "status": "in_progress",
+      "notes": "Codex and Claude Code are the first targets."
+    }
+  ],
+  "decisions": [
+    {
+      "summary": "Use a provider-neutral canonical model.",
+      "rationale": "Provider-specific behavior belongs at adapter boundaries."
+    }
+  ],
+  "constraints": ["Do not export secrets."],
+  "openQuestions": ["Which provider adapter should be implemented first?"]
+}

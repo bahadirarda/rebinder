@@ -1,0 +1,27 @@
+{
+  "source": {
+    "provider": "codex",
+    "harnessVersion": "example",
+    "adapterVersion": "0.1.0"
+  },
+  "exportedAt": "2026-08-17T09:15:00Z",
+  "transformations": [
+    {
+      "name": "canonicalize",
+      "version": "0.1.0",
+      "details": "Mapped example source data to the canonical model."
+    }
+  ],
+  "redactions": [
+    {
+      "category": "environment",
+      "location": "workspace-state.json/environment/0",
+      "count": 1
+    },
+    {
+      "category": "credential",
+      "location": "repository-state.json/repositories/0/remotes/0",
+      "count": 1
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+name: changesets
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: changesets-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version-pull-request:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.92.0 --profile minimal
+      - name: Create or update version pull request
+        id: changesets
+        uses: changesets/action@198f833dd7d863100ea6e28967bc9a9fdefadb0a # v2.1.0
+        with:
+          version-script: bun run version:packages
+          commit-message: "build(release): version packages"
+          pr-title: "build(release): version packages"
+          create-github-releases: false
+          push-git-tags: false
+      - name: Dispatch version pull request validation
+        if: steps.changesets.outputs['pr-number'] != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_BRANCH: changeset-release/${{ github.ref_name }}
+        run: gh workflow run ci.yml --ref "$VERSION_BRANCH"
+      - name: Curate calendar release pull request
+        if: steps.changesets.outputs['pr-number'] != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_BRANCH: changeset-release/${{ github.ref_name }}
+          VERSION_PR_NUMBER: ${{ steps.changesets.outputs['pr-number'] }}
+        shell: bash
+        run: |
+          git fetch origin "$VERSION_BRANCH"
+          body_path="$RUNNER_TEMP/calendar-release-pr.md"
+          release_version="$(bun scripts/release/release-pr-body.ts --ref "origin/$VERSION_BRANCH" --output "$body_path")"
+          gh pr edit "$VERSION_PR_NUMBER" \
+            --title "build(release): rebinder $release_version" \
+            --body-file "$body_path"

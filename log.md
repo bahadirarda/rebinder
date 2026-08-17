@@ -1,0 +1,22 @@
+# Directory Update Log
+
+## 2026-08-17
+
+- Initialized the project documentation bundle.
+- Renamed the project to **Rebinder** and the working directory to `rebinder/`.
+- Recorded the OKF 0.2 project-profile decision.
+- Added initial product, terminology, architecture, and ADR documents.
+- Began the Rust reference implementation and recorded ADR-0002.
+- Defined draft interchange schema `0.1.0` and its package invariants.
+- Added structural validation, integrity checks, inspection output, a minimal
+  example package, tests, and CI quality gates.
+- Defined the harness command facade and cross-harness transfer CLI contract in
+  ADR-0003.
+- Adopted the `0.YYYYMMDD.REVISION` calendar release identity and independent
+  schema versioning in ADR-0004.
+- Added Changesets release intent, verified cross-platform installers, native
+  release archives, checksums, build metadata, and provenance attestations.
+- Added the Rebinder hero asset and professional README, contribution, support,
+  security, and GitHub issue-management surfaces.
+- Added the one-time GitHub trust-control checklist and maintainer release
+  runbook for the first immutable calendar release.

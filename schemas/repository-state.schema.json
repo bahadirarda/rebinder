@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rebinder.dev/schemas/0.1.0/repository-state.schema.json",
+  "title": "Canonical repository state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["repositories"],
+  "properties": {
+    "repositories": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/repository" }
+    }
+  },
+  "$defs": {
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "vcs", "head", "remotes", "changes"],
+      "properties": {
+        "root": { "type": "string", "minLength": 1 },
+        "vcs": { "const": "git" },
+        "head": { "$ref": "#/$defs/head" },
+        "remotes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/remote" }
+        },
+        "changes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/change" }
+        },
+        "patchFile": {
+          "type": "string",
+          "pattern": "^patches/[A-Za-z0-9._-]+$"
+        }
+      }
+    },
+    "head": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "detached"],
+      "properties": {
+        "commit": { "type": "string", "pattern": "^[a-fA-F0-9]{7,64}$" },
+        "branch": { "type": "string", "minLength": 1 },
+        "detached": { "type": "boolean" }
+      }
+    },
+    "remote": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "redacted"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "minLength": 1 },
+        "redacted": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "redacted": { "const": true } },
+            "required": ["redacted"]
+          },
+          "then": { "not": { "required": ["url"] } },
+          "else": { "required": ["url"] }
+        }
+      ]
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "status", "staged"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["added", "modified", "deleted", "renamed", "copied", "untracked", "conflicted"] },
+        "staged": { "type": "boolean" }
+      }
+    }
+  }
+}
