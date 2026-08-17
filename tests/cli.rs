@@ -52,7 +52,85 @@ fn codex_command_forwards_arguments_unchanged() {
 }
 
 #[test]
-fn cross_harness_transfer_interface_is_reserved() {
+fn unsupported_transfer_direction_fails_closed() {
+    let output = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "transfer",
+            "--from",
+            "codex",
+            "--to",
+            "claude",
+            "session-123",
+        ])
+        .output()
+        .expect("run cross-harness transfer");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("codex to claude transfer is not implemented yet"));
+}
+
+#[cfg(unix)]
+#[test]
+fn claude_to_codex_imports_and_resumes_in_the_recorded_workspace() {
+    use std::{fs, os::unix::fs::PermissionsExt};
+
+    let fixture = tempfile::tempdir().expect("create transfer fixture");
+    let bin_directory = fixture.path().join("bin");
+    let workspace = fixture.path().join("worktree");
+    let session_directory = fixture.path().join("claude-sessions");
+    fs::create_dir_all(&bin_directory).expect("create fake bin directory");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::create_dir_all(&session_directory).expect("create session directory");
+
+    let session_id = "11111111-2222-3333-4444-555555555555";
+    let source_path = session_directory.join(format!("{session_id}.jsonl"));
+    fs::write(&source_path, "{\"type\":\"user\"}\n").expect("write source session");
+    let arguments_log = fixture.path().join("resume-arguments.txt");
+    let cwd_log = fixture.path().join("resume-cwd.txt");
+    let executable = bin_directory.join("codex");
+
+    let source_json = serde_json::to_string(source_path.to_str().expect("UTF-8 source path"))
+        .expect("encode source path");
+    let cwd_json = serde_json::to_string(workspace.to_str().expect("UTF-8 workspace path"))
+        .expect("encode workspace path");
+    let script = format!(
+        r#"#!/bin/sh
+if [ "$1" = "app-server" ]; then
+  while IFS= read -r line; do
+    case "$line" in
+      *'"id":0'*)
+        printf '%s\n' '{{"id":0,"result":{{}}}}'
+        ;;
+      *'"id":1'*)
+        printf '%s\n' '{{"id":1,"result":{{"items":[{{"itemType":"SESSIONS","description":"Import Claude sessions","cwd":null,"details":{{"plugins":[],"skills":[],"sessions":[{{"path":{source_json},"cwd":{cwd_json},"title":"Fixture session"}}],"mcpServers":[],"hooks":[],"subagents":[],"commands":[]}}}}]}}}}'
+        ;;
+      *'"id":2'*)
+        printf '%s\n' '{{"id":2,"result":{{"data":[]}}}}'
+        ;;
+      *'"id":3'*)
+        printf '%s\n' '{{"id":3,"result":{{"importId":"import-1"}}}}'
+        printf '%s\n' '{{"method":"externalAgentConfig/import/completed","params":{{"importId":"import-1","itemTypeResults":[{{"itemType":"SESSIONS","successes":[{{"itemType":"SESSIONS","cwd":{cwd_json},"source":{source_json},"target":"019c0000-0000-7000-8000-000000000001","title":"Fixture session"}}],"failures":[]}}]}}}}'
+        ;;
+    esac
+  done
+  exit 0
+fi
+if [ "$1" = "resume" ]; then
+  printf '%s\n' "$@" > "$FAKE_CODEX_ARGUMENTS_LOG"
+  printf '%s\n' "$PWD" > "$FAKE_CODEX_CWD_LOG"
+  exit 0
+fi
+exit 64
+"#
+    );
+    fs::write(&executable, script).expect("write fake codex");
+    let mut permissions = fs::metadata(&executable)
+        .expect("read fake codex metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&executable, permissions).expect("make fake codex executable");
+
     let output = Command::new(env!("CARGO_BIN_EXE_rebinder"))
         .args([
             "transfer",
@@ -60,15 +138,32 @@ fn cross_harness_transfer_interface_is_reserved() {
             "claude",
             "--to",
             "codex",
-            "session-123",
+            session_id,
             "--",
-            "--full-auto",
+            "--model",
+            "gpt-fixture",
         ])
+        .current_dir(&workspace)
+        .env("PATH", &bin_directory)
+        .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
+        .env("FAKE_CODEX_CWD_LOG", &cwd_log)
         .output()
-        .expect("run cross-harness transfer");
+        .expect("run Claude-to-Codex transfer");
 
-    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        output.status.success(),
+        "transfer failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(arguments_log).expect("read arguments log"),
+        "resume\n019c0000-0000-7000-8000-000000000001\n--model\ngpt-fixture\n"
+    );
+    assert_eq!(
+        fs::read_to_string(cwd_log).expect("read cwd log"),
+        format!("{}\n", workspace.display())
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("claude session session-123 -> codex"));
-    assert!(stderr.contains("1 target argument(s)"));
+    assert!(stderr.contains("imported Claude Code session"));
+    assert!(stderr.contains(session_id));
 }

@@ -2,13 +2,13 @@
 
 > Rebinder is an open-source Rust CLI for cross-harness session continuity between coding agents.
 
-The foundation MVP provides native command passthrough for Codex and Claude CLIs, canonical portable session-package validation, integrity verification, and read-only inspection. The explicit `rebinder transfer` command contract is reserved and currently exits closed because provider export, compatibility reporting, redaction, and target artifact generation are not yet implemented. Rebinder does not claim that provider sessions are interchangeable.
+Claude-to-Codex transfer is operational for local Claude Code sessions supported by the installed Codex importer. `rebinder sessions claude` lists source IDs and recorded workspaces; `rebinder transfer SESSION_ID --from claude --to codex` imports one selected session as a native Codex thread and resumes it in that workspace. Repeat transfers reuse the binding and checkpoint changed source transcripts. Rebinder selects only session data, leaves provider setup unchanged, and fails closed when the workspace is missing. Codex-to-Claude transfer, missing-worktree reconstruction, and general compatibility reporting remain pending. The portable package validator and native command facades remain available independently.
 
 ## Product
 
 - [Project README](https://raw.githubusercontent.com/bahadirarda/rebinder/main/README.md): Installation, CLI usage, current boundaries, release identity, and development commands.
 - [Product requirements](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/product/product-requirements.md): Product behavior, user model, requirements, and constraints.
-- [MVP status](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/product/mvp-status.md): Implemented foundation capabilities and pending provider work.
+- [MVP status](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/product/mvp-status.md): Operational Claude-to-Codex behavior and pending portability work.
 - [Terminology](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/terminology.md): Canonical project language.
 
 ## Architecture and format
@@ -16,6 +16,7 @@ The foundation MVP provides native command passthrough for Codex and Claude CLIs
 - [Architecture](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/architecture/architecture.md): Component boundaries and the intended transfer pipeline.
 - [Interchange Format 0.1.0](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/format/interchange-format-0.1.md): Canonical portable session package and validation rules.
 - [CLI command model](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/decisions/ADR-0003-cli-command-model.md): Provider-native passthrough and explicit transfer syntax.
+- [Codex native import bridge](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/decisions/ADR-0005-codex-native-import-bridge.md): One-way native import architecture, selection rules, and failure boundaries.
 
 ## Distribution
 

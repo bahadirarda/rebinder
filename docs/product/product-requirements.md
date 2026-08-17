@@ -50,6 +50,19 @@ initial command contract is `rebinder transfer --from <source> --to <target>
 [session-id] -- [target arguments]`. Rebinder-owned flags MUST NOT alter the
 meaning of native provider commands in the harness command facade.
 
+### FR-010 — Claude-to-Codex native bridge
+
+The first operational direction MUST discover local Claude Code sessions
+through Codex's supported external-agent migration API, import only the selected
+session, obtain the target Codex thread ID, and resume that thread in the
+source session's recorded workspace. It MUST NOT directly mutate provider
+session stores or import credentials and configuration as a side effect.
+
+When the source transcript has changed since a prior transfer, the bridge MUST
+use the target provider's checkpoint behavior rather than create an unrelated
+duplicate. When the recorded workspace is missing, the bridge MUST stop before
+starting Codex.
+
 ## Quality requirements
 
 - The interchange package SHOULD be human-readable and Git-friendly.

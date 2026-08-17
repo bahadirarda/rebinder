@@ -23,3 +23,6 @@
 - Added the dependency-free product website, truthful foundation-MVP capability
   presentation, search and agent discovery metadata, structural validation, and
   protected GitHub Pages delivery.
+- Activated local Claude Code to Codex transfer through Codex's external-agent
+  import API, including session discovery, idempotent checkpoint imports,
+  recorded-workspace resume, and fail-closed worktree handling.

@@ -1,7 +1,7 @@
 {
   "name": "Rebinder",
   "short_name": "Rebinder",
-  "description": "Cross-harness session continuity for coding agents.",
+  "description": "Move local Claude Code sessions into native Codex threads and continue in their recorded workspace.",
   "start_url": "/rebinder/",
   "scope": "/rebinder/",
   "display": "standalone",

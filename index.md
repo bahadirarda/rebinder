@@ -25,11 +25,13 @@ Rebinder rebinds an agent session's portable state to a different coding agent h
 - [ADR-0002: Rust implementation](docs/decisions/ADR-0002-rust-implementation.md)
 - [ADR-0003: CLI command model](docs/decisions/ADR-0003-cli-command-model.md)
 - [ADR-0004: Calendar releases and native distribution](docs/decisions/ADR-0004-calendar-releases.md)
+- [ADR-0005: Codex native import bridge](docs/decisions/ADR-0005-codex-native-import-bridge.md)
 
 ## Status
 
-The project is a foundation MVP. Interchange schema `0.1.0`, the Rust
-validation and inspection core, verified native distribution pipeline, and
-harness command passthrough are implemented. The dependency-free product site
-is delivered through protected GitHub Pages automation. Provider adapters and
-operational cross-harness transfer remain pending.
+The project has an operational one-way transfer MVP. Local Claude Code sessions
+can be discovered, imported into native Codex threads, and resumed in their
+recorded workspace. Interchange schema `0.1.0`, Rust package validation and
+inspection, verified native distribution, command passthrough, and the product
+site are also implemented. Codex-to-Claude and provider-neutral compatibility
+reporting remain pending.

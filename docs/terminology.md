@@ -97,6 +97,19 @@ The serialized representation of the canonical session model used for exchange.
 
 A component that imports provider-specific data into the canonical model and exports canonical data for a provider.
 
+## Target-Native Import Bridge
+
+A transfer adapter that delegates provider-specific conversion and session
+store writes to a supported target-provider API. Rebinder's initial
+Claude-to-Codex path uses the Codex app-server external-agent migration API and
+never writes Codex session files directly.
+
+## Recorded Workspace
+
+The working directory stored with the source session. It may be a repository
+root, nested directory, or Git worktree. The initial transfer MVP reuses this
+directory when it exists and fails closed when it does not.
+
 ## Harness Command Facade
 
 The Rebinder CLI namespace that transparently launches a provider CLI and

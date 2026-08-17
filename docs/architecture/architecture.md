@@ -13,6 +13,8 @@ The system uses a provider-adapter architecture around a canonical session model
 
 ## Data flow
 
+The provider-neutral path remains the long-term interoperability architecture:
+
 ```text
 Source Harness
     -> Source Provider Adapter
@@ -20,6 +22,18 @@ Source Harness
     -> Interchange Package
     -> Target Provider Adapter
     -> Target Harness Continuation Artifact
+```
+
+The operational Claude-to-Codex MVP uses a target-native bridge exposed by
+Codex instead of writing Codex's private session representation:
+
+```text
+Rebinder
+    -> Codex app-server externalAgentConfig/detect
+    -> Select one Claude Code SESSIONS migration
+    -> Codex app-server externalAgentConfig/import
+    -> Native Codex thread ID
+    -> codex resume in the recorded Claude workspace
 ```
 
 ## Core boundaries
@@ -65,8 +79,10 @@ serialized `0.1.0` contract. The Rust core validates package containment,
 regular-file constraints, SHA-256 integrity, individual documents, and
 cross-document invariants before exposing inspection data.
 
-Provider adapters will depend on the core library. Provider discovery and
-parsing MUST NOT be introduced into the canonical validation modules.
+Provider discovery and parsing MUST NOT be introduced into the canonical
+validation modules. The Claude-to-Codex native bridge is isolated in the
+transfer module and communicates with Codex over newline-delimited JSON-RPC.
+It neither parses Claude transcript content nor writes Codex session files.
 
 ## CLI command boundaries
 
@@ -78,10 +94,8 @@ rebinder <harness> <native arguments>
     -> provider process
 
 rebinder transfer --from <source> --to <target> [session] -- [target arguments]
-    -> source adapter export
-    -> canonical validation and redaction
-    -> target compatibility evaluation
-    -> target adapter continuation artifact
+    -> direction-specific transfer adapter
+    -> target-native continuation artifact
     -> target provider process
 ```
 
@@ -89,3 +103,8 @@ The command facade MUST pass native provider arguments without interpreting
 them and MUST inherit interactive standard streams. The cross-harness transfer
 path owns its source and target flags; arguments following `--` belong only to
 the target provider.
+
+For Claude-to-Codex, omission of the session ID selects only the latest session
+whose recorded `cwd` resolves to the current directory. An explicit ID can
+select another discovered session. A missing recorded directory is an error;
+the MVP reuses existing worktrees but does not recreate them.

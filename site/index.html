@@ -6,7 +6,7 @@
     <title>Rebinder — Continue coding-agent sessions across harnesses</title>
     <meta
       name="description"
-      content="Rebinder is an open-source Rust CLI for native Codex and Claude command passthrough, portable session-package validation, and explicit cross-harness continuity."
+      content="Rebinder is an open-source Rust CLI that imports local Claude Code sessions into native Codex threads and resumes them in their recorded workspace."
     >
     <meta
       name="keywords"
@@ -24,7 +24,7 @@
     <meta property="og:title" content="Rebinder — Leave the harness. Keep the thread.">
     <meta
       property="og:description"
-      content="A native Rust boundary for coding-agent session continuity across Codex and Claude harnesses."
+      content="Move a local Claude Code session into a native Codex thread and continue in its recorded workspace."
     >
     <meta property="og:url" content="https://bahadirarda.github.io/rebinder/">
     <meta property="og:image" content="https://bahadirarda.github.io/rebinder/assets/rebinder-social-card.png">
@@ -36,7 +36,7 @@
     <meta name="twitter:title" content="Rebinder — Cross-harness session continuity">
     <meta
       name="twitter:description"
-      content="Run native harness commands today. Validate portable session state. Build toward explicit, loss-aware transfer."
+      content="Discover a Claude Code session, import it as a native Codex thread, and continue in the same workspace."
     >
     <meta name="twitter:image" content="https://bahadirarda.github.io/rebinder/assets/rebinder-social-card.png">
 
@@ -58,7 +58,7 @@
             "name": "Rebinder",
             "applicationCategory": "DeveloperApplication",
             "operatingSystem": "Linux, macOS, Windows",
-            "description": "An open-source Rust CLI for native Codex and Claude command passthrough and portable coding-agent session-package validation.",
+            "description": "An open-source Rust CLI for local Claude Code to Codex session transfer, native command passthrough, and portable session-package validation.",
             "url": "https://bahadirarda.github.io/rebinder/",
             "downloadUrl": "https://github.com/bahadirarda/rebinder/releases/latest",
             "installUrl": "https://bahadirarda.github.io/rebinder/install.sh",
@@ -92,7 +92,7 @@
             <path class="mark-link" d="M23 18c5-4 12-4 18 0M23 24c5 4 12 4 18 0" />
           </svg>
           <span>rebinder</span>
-          <small>foundation mvp</small>
+          <small>transfer mvp</small>
         </a>
 
         <nav class="primary-nav" aria-label="Primary navigation">
@@ -116,9 +116,9 @@
             <p class="eyebrow"><span></span> Cross-harness session continuity</p>
             <h1>Leave the harness.<br><em>Keep the thread.</em></h1>
             <p class="hero-lede">
-              Rebinder is a native Rust CLI that puts one explicit boundary around coding-agent sessions.
-              Run Codex and Claude commands unchanged, validate portable state, and move toward transfer
-              without pretending incompatible harnesses are the same system.
+              Rebinder moves a local Claude Code session into a native Codex thread, then resumes it
+              in the workspace or Git worktree where the work happened. Codex owns the conversion;
+              Rebinder owns explicit selection, safe orchestration, and the handoff boundary.
             </p>
 
             <div class="hero-actions">
@@ -131,35 +131,35 @@
             <ul class="hero-proof">
               <li>Native Rust binary</li>
               <li>MIT licensed</li>
-              <li>Fail-closed transfer</li>
+              <li>Claude → Codex live</li>
             </ul>
           </div>
 
           <div class="continuity-demo" data-reveal>
-            <div class="demo-label"><span>01 / Native command facade</span><span class="live-dot">available now</span></div>
-            <section class="terminal terminal-source" aria-label="Codex command passthrough example">
-              <div class="terminal-head"><span>codex</span><span>source harness</span></div>
+            <div class="demo-label"><span>01 / Native import bridge</span><span class="live-dot">available now</span></div>
+            <section class="terminal terminal-source" aria-label="Claude session discovery example">
+              <div class="terminal-head"><span>claude code</span><span>source harness</span></div>
               <div class="terminal-body">
-                <p><span class="prompt">$</span> rebinder codex resume --last</p>
-                <p class="terminal-muted">argv and interactive streams pass through unchanged</p>
-                <p class="terminal-result"><span>●</span> native command running</p>
+                <p><span class="prompt">$</span> rebinder sessions claude</p>
+                <p class="terminal-muted">resolve source ID, title, and recorded workspace</p>
+                <p class="terminal-result"><span>●</span> session ready to import</p>
               </div>
             </section>
             <div class="binding-line" aria-hidden="true">
               <span></span><svg viewBox="0 0 64 42"><path d="M4 7h10l17 14-17 14H4l17-14L4 7Z" /><path d="M60 7H50L33 21l17 14h10L43 21 60 7Z" /></svg><span></span>
             </div>
-            <section class="terminal terminal-target" aria-label="Claude command passthrough example">
-              <div class="terminal-head"><span>claude</span><span>target harness</span></div>
+            <section class="terminal terminal-target" aria-label="Codex continuation example">
+              <div class="terminal-head"><span>codex</span><span>target harness</span></div>
               <div class="terminal-body">
-                <p><span class="prompt">$</span> rebinder claude --continue</p>
-                <p class="terminal-muted">use the provider's own commands after rebinder</p>
-                <p class="terminal-result"><span>●</span> native command running</p>
+                <p><span class="prompt">$</span> rebinder transfer SESSION_ID --from claude --to codex</p>
+                <p class="terminal-muted">Codex imports the chat and returns a native thread ID</p>
+                <p class="terminal-result"><span>●</span> native Codex thread resumed</p>
               </div>
             </section>
             <div class="transfer-preview">
-              <div><span>02 / Cross-harness transfer</span><strong>contract defined</strong></div>
-              <code>rebinder transfer SESSION_ID --from claude --to codex -- --full-auto</code>
-              <p>Reserved until compatibility and information loss can be reported. Exits <strong>2</strong> today.</p>
+              <div><span>02 / Cross-harness transfer</span><strong>one-way MVP live</strong></div>
+              <code>rebinder transfer SESSION_ID --from claude --to codex -- --search</code>
+              <p>Repeats resume the same imported thread. Missing worktrees and unsupported directions fail closed.</p>
             </div>
           </div>
         </div>
@@ -167,7 +167,7 @@
 
       <section class="status-strip" aria-label="Current Rebinder status">
         <div class="shell status-grid">
-          <div><strong>2</strong><span>native harness facades</span></div>
+          <div><strong>1</strong><span>live transfer direction</span></div>
           <div><strong>7</strong><span>canonical package documents</span></div>
           <div><strong>5</strong><span>native release targets</span></div>
           <div><strong>0.1.0</strong><span>interchange schema</span></div>
@@ -178,27 +178,27 @@
         <div class="shell">
           <div class="section-heading" data-reveal>
             <p class="section-index">01 / Use it today</p>
-            <h2>One prefix.<br>Native commands intact.</h2>
+            <h2>Pick up the thread.<br>Change the harness.</h2>
             <p>
-              Rebinder does not replace the provider CLI. Everything after <code>rebinder codex</code>
-              or <code>rebinder claude</code> belongs to that harness, including interactive input,
-              terminal output, and process status.
+              Discover a supported local Claude Code chat, import exactly that session through
+              Codex's native migration API, and continue in the recorded workspace. No direct writes
+              to either provider's private session store.
             </p>
           </div>
 
           <div class="command-grid">
             <article class="command-card command-card-blue" data-reveal>
-              <div class="command-card-head"><span>Codex</span><span>passthrough</span></div>
-              <h3>Keep using Codex commands.</h3>
-              <div class="code-line"><code>rebinder codex resume --last</code><button type="button" data-copy-value="rebinder codex resume --last" aria-label="Copy Codex example">Copy</button></div>
-              <p>Rebinder locates <code>codex</code>, forwards the native arguments, and becomes the child process for the duration of the command.</p>
+              <div class="command-card-head"><span>Discover</span><span>read only</span></div>
+              <h3>Find the Claude session.</h3>
+              <div class="code-line"><code>rebinder sessions claude</code><button type="button" data-copy-value="rebinder sessions claude" aria-label="Copy session discovery example">Copy</button></div>
+              <p>See provider session IDs, titles, recorded workspaces, and whether a native Codex binding already exists—without printing transcript content.</p>
             </article>
 
             <article class="command-card command-card-cyan" data-reveal>
-              <div class="command-card-head"><span>Claude</span><span>passthrough</span></div>
-              <h3>Keep using Claude commands.</h3>
-              <div class="code-line"><code>rebinder claude --continue</code><button type="button" data-copy-value="rebinder claude --continue" aria-label="Copy Claude example">Copy</button></div>
-              <p>The same facade preserves Claude's command vocabulary. Rebinder adds a stable entry point without flattening provider differences.</p>
+              <div class="command-card-head"><span>Transfer</span><span>interactive</span></div>
+              <h3>Continue natively in Codex.</h3>
+              <div class="code-line"><code>rebinder transfer SESSION_ID --from claude --to codex</code><button type="button" data-copy-value="rebinder transfer SESSION_ID --from claude --to codex" aria-label="Copy Claude to Codex transfer example">Copy</button></div>
+              <p>Codex converts the selected chat, creates or checkpoints its native thread, and opens <code>codex resume</code> in the source workspace.</p>
             </article>
           </div>
         </div>
@@ -222,7 +222,7 @@
             <li data-reveal>
               <span>01</span>
               <div><h3>Inspect the source</h3><p>Resolve session identity and collect only the provider state the adapter can prove.</p></div>
-              <small>planned</small>
+              <small>Claude live</small>
             </li>
             <li data-reveal>
               <span>02</span>
@@ -236,8 +236,8 @@
             </li>
             <li data-reveal>
               <span>04</span>
-              <div><h3>Generate target state</h3><p>Create target-native continuation artifacts only after validation and loss reporting.</p></div>
-              <small>planned</small>
+              <div><h3>Generate target state</h3><p>Use the target provider's supported importer instead of mutating private session files.</p></div>
+              <small>Codex live</small>
             </li>
           </ol>
         </div>
@@ -249,7 +249,7 @@
             <p class="section-index">03 / Portable package</p>
             <h2>State you can inspect<br>before an agent starts.</h2>
             <p>
-              The foundation MVP already validates a canonical package as ordinary files. No harness is
+              The portable core validates a canonical package as ordinary files. No harness is
               launched, no package content is executed, and failed integrity checks stop inspection.
             </p>
           </div>
@@ -363,14 +363,14 @@
               <button type="button" data-copy-target="install-powershell" aria-label="Copy PowerShell install command">Copy</button>
             </div>
             <p class="install-note" data-install-panel="shell">
-              Pin an exact release with <code>REBINDER_VERSION=v0.20260817.2</code>. Review the
+              Pin an exact release with <code>REBINDER_VERSION=v0.20260817.4</code>. Review the
               <a href="install.sh">shell installer source</a> first.
             </p>
             <p class="install-note" data-install-panel="powershell" hidden>
-              Pin an exact release with <code>$env:REBINDER_VERSION='v0.20260817.2'</code>. Review the
+              Pin an exact release with <code>$env:REBINDER_VERSION='v0.20260817.4'</code>. Review the
               <a href="install.ps1">PowerShell installer source</a> first.
             </p>
-            <div class="first-run"><span>Then pass through a native command</span><code>rebinder codex resume --last</code></div>
+            <div class="first-run"><span>Then discover a Claude session</span><code>rebinder sessions claude</code></div>
           </div>
         </div>
       </section>
