@@ -52,8 +52,8 @@ Windows PowerShell:
 irm https://github.com/bahadirarda/rebinder/releases/latest/download/install.ps1 | iex
 ```
 
-Pin an exact calendar release with `REBINDER_VERSION=v0.20260817.0` on Unix or
-`$env:REBINDER_VERSION='v0.20260817.0'` on Windows. Set
+Pin an exact calendar release with `REBINDER_VERSION=v0.20260817.1` on Unix or
+`$env:REBINDER_VERSION='v0.20260817.1'` on Windows. Set
 `REBINDER_INSTALL_DIR` to choose the destination.
 
 Every installer downloads the platform archive and release-owned `SHA256SUMS`,
