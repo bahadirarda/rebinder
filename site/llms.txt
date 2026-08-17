@@ -2,7 +2,7 @@
 
 > Rebinder is an open-source Rust CLI for cross-harness session continuity between coding agents.
 
-Claude-to-Codex transfer is operational for local Claude Code sessions supported by the installed Codex importer. `rebinder sessions claude` lists source IDs and recorded workspaces; `rebinder transfer SESSION_ID --from claude --to codex` imports one selected session as a native Codex thread and resumes it in that workspace. Repeat transfers reuse the binding and checkpoint changed source transcripts. Rebinder selects only session data, leaves provider setup unchanged, and fails closed when the workspace is missing. Codex-to-Claude transfer, missing-worktree reconstruction, and general compatibility reporting remain pending. The portable package validator and native command facades remain available independently.
+Claude-to-Codex transfer is operational for local Claude Code sessions supported by the installed Codex importer. `rebinder sessions claude` lists source IDs, recorded workspaces, sizes, and recommended strategies. `rebinder transfer --from claude --to codex` opens an interactive selector; an explicit session ID bypasses it. The default auto strategy fully imports sources up to 512 KiB and uses a bounded compact-summary handoff for larger sources before resuming a native Codex thread. Repeat handoffs reuse the strategy-specific binding and append a checkpoint only when the source changes. Rebinder leaves provider setup unchanged and fails closed when the workspace is missing. Codex-to-Claude transfer, missing-worktree reconstruction, and general compatibility reporting remain pending. The portable package validator and native command facades remain available independently.
 
 ## Product
 

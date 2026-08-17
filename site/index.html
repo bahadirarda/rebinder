@@ -58,7 +58,7 @@
             "name": "Rebinder",
             "applicationCategory": "DeveloperApplication",
             "operatingSystem": "Linux, macOS, Windows",
-            "description": "An open-source Rust CLI for local Claude Code to Codex session transfer, native command passthrough, and portable session-package validation.",
+            "description": "An open-source Rust CLI with interactive, context-safe local Claude Code to Codex session transfer, native command passthrough, and portable session-package validation.",
             "url": "https://bahadirarda.github.io/rebinder/",
             "downloadUrl": "https://github.com/bahadirarda/rebinder/releases/latest",
             "installUrl": "https://bahadirarda.github.io/rebinder/install.sh",
@@ -141,8 +141,8 @@
               <div class="terminal-head"><span>claude code</span><span>source harness</span></div>
               <div class="terminal-body">
                 <p><span class="prompt">$</span> rebinder sessions claude</p>
-                <p class="terminal-muted">resolve source ID, title, and recorded workspace</p>
-                <p class="terminal-result"><span>●</span> session ready to import</p>
+                <p class="terminal-muted">review state, title, workspace, size, and strategy</p>
+                <p class="terminal-result"><span>●</span> sessions ready to select</p>
               </div>
             </section>
             <div class="binding-line" aria-hidden="true">
@@ -151,15 +151,15 @@
             <section class="terminal terminal-target" aria-label="Codex continuation example">
               <div class="terminal-head"><span>codex</span><span>target harness</span></div>
               <div class="terminal-body">
-                <p><span class="prompt">$</span> rebinder transfer SESSION_ID --from claude --to codex</p>
-                <p class="terminal-muted">Codex imports the chat and returns a native thread ID</p>
+                <p><span class="prompt">$</span> rebinder transfer --from claude --to codex</p>
+                <p class="terminal-muted">pick with arrows; large chats use a bounded handoff</p>
                 <p class="terminal-result"><span>●</span> native Codex thread resumed</p>
               </div>
             </section>
             <div class="transfer-preview">
               <div><span>02 / Cross-harness transfer</span><strong>one-way MVP live</strong></div>
-              <code>rebinder transfer SESSION_ID --from claude --to codex -- --search</code>
-              <p>Repeats resume the same imported thread. Missing worktrees and unsupported directions fail closed.</p>
+              <code>rebinder transfer --from claude --to codex -- --search</code>
+              <p>Auto protects the context window, repeats reuse the strategy-specific thread, and missing worktrees fail closed.</p>
             </div>
           </div>
         </div>
@@ -180,9 +180,9 @@
             <p class="section-index">01 / Use it today</p>
             <h2>Pick up the thread.<br>Change the harness.</h2>
             <p>
-              Discover a supported local Claude Code chat, import exactly that session through
-              Codex's native migration API, and continue in the recorded workspace. No direct writes
-              to either provider's private session store.
+              Discover a supported local Claude Code chat, choose it interactively, and continue
+              through Codex's native migration API in the recorded workspace. Large histories are
+              bounded before import. No direct writes to either provider's private session store.
             </p>
           </div>
 
@@ -191,14 +191,14 @@
               <div class="command-card-head"><span>Discover</span><span>read only</span></div>
               <h3>Find the Claude session.</h3>
               <div class="code-line"><code>rebinder sessions claude</code><button type="button" data-copy-value="rebinder sessions claude" aria-label="Copy session discovery example">Copy</button></div>
-              <p>See provider session IDs, titles, recorded workspaces, and whether a native Codex binding already exists—without printing transcript content.</p>
+              <p>See provider session IDs, titles, recorded workspaces, source sizes, and recommended strategies—without printing transcript content.</p>
             </article>
 
             <article class="command-card command-card-cyan" data-reveal>
               <div class="command-card-head"><span>Transfer</span><span>interactive</span></div>
               <h3>Continue natively in Codex.</h3>
-              <div class="code-line"><code>rebinder transfer SESSION_ID --from claude --to codex</code><button type="button" data-copy-value="rebinder transfer SESSION_ID --from claude --to codex" aria-label="Copy Claude to Codex transfer example">Copy</button></div>
-              <p>Codex converts the selected chat, creates or checkpoints its native thread, and opens <code>codex resume</code> in the source workspace.</p>
+              <div class="code-line"><code>rebinder transfer --from claude --to codex</code><button type="button" data-copy-value="rebinder transfer --from claude --to codex" aria-label="Copy interactive Claude to Codex transfer example">Copy</button></div>
+              <p>Choose with arrow keys and Enter. Auto uses a context-safe handoff for large chats, then opens <code>codex resume</code> in the source workspace.</p>
             </article>
           </div>
         </div>
@@ -363,11 +363,11 @@
               <button type="button" data-copy-target="install-powershell" aria-label="Copy PowerShell install command">Copy</button>
             </div>
             <p class="install-note" data-install-panel="shell">
-              Pin an exact release with <code>REBINDER_VERSION=v0.20260817.4</code>. Review the
+              Pin an exact release with <code>REBINDER_VERSION=v0.20260817.5</code>. Review the
               <a href="install.sh">shell installer source</a> first.
             </p>
             <p class="install-note" data-install-panel="powershell" hidden>
-              Pin an exact release with <code>$env:REBINDER_VERSION='v0.20260817.4'</code>. Review the
+              Pin an exact release with <code>$env:REBINDER_VERSION='v0.20260817.5'</code>. Review the
               <a href="install.ps1">PowerShell installer source</a> first.
             </p>
             <div class="first-run"><span>Then discover a Claude session</span><code>rebinder sessions claude</code></div>

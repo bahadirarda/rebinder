@@ -57,8 +57,8 @@ Windows PowerShell:
 irm https://github.com/bahadirarda/rebinder/releases/latest/download/install.ps1 | iex
 ```
 
-Pin an exact calendar release with `REBINDER_VERSION=v0.20260817.4` on Unix or
-`$env:REBINDER_VERSION='v0.20260817.4'` on Windows. Set
+Pin an exact calendar release with `REBINDER_VERSION=v0.20260817.5` on Unix or
+`$env:REBINDER_VERSION='v0.20260817.5'` on Windows. Set
 `REBINDER_INSTALL_DIR` to choose the destination.
 
 Every installer downloads the platform archive and release-owned `SHA256SUMS`,
@@ -79,24 +79,32 @@ cargo install --locked --path .
 Rebinder delegates conversion to Codex's external-agent session importer. It
 selects only the session migration item, leaves existing Claude and Codex setup
 unchanged, receives the imported Codex thread ID, and resumes that thread with
-the native Codex CLI.
+the native Codex CLI. Large transcripts are bounded before import so a resumed
+thread does not immediately exhaust Codex's context window.
 
-List the Claude sessions Codex can currently import, including their IDs and
-recorded workspaces:
+List the Claude sessions Codex can currently import, including their IDs,
+recorded workspaces, states, and recommended transfer strategies:
 
 ```bash
 rebinder sessions claude
 rebinder sessions claude --json
 ```
 
-Transfer a specific session:
+Open the interactive session picker, move with the arrow keys, and press Enter:
+
+```bash
+rebinder transfer --from claude --to codex
+```
+
+Press Esc to cancel without importing. To bypass the picker, transfer a
+specific session by ID:
 
 ```bash
 rebinder transfer SESSION_ID --from claude --to codex
 ```
 
-When run from the same workspace or Git worktree as the Claude session, omit
-the ID to select that workspace's most recently updated session:
+In a non-interactive shell, omitting the ID selects the most recently updated
+session whose recorded workspace or Git worktree matches the current directory:
 
 ```bash
 rebinder transfer --from claude --to codex
@@ -108,11 +116,30 @@ Arguments after `--` are passed to `codex resume` after the imported thread ID:
 rebinder transfer SESSION_ID --from claude --to codex -- --search
 ```
 
+The default `--strategy auto` uses Codex's native full import for source files
+up to 512 KiB. Larger sources use a context-safe handoff containing the latest
+Claude compact summary and at most 40,000 characters of recent visible user and
+assistant text. Thinking, tool calls, and tool results are excluded. Override
+the decision explicitly when diagnosing compatibility:
+
+```bash
+rebinder transfer SESSION_ID --from claude --to codex --strategy handoff
+rebinder transfer SESSION_ID --from claude --to codex --strategy full
+```
+
+If an older full import fails with `Codex ran out of room in the model's context
+window`, leave that thread in place and rerun the transfer with the default
+strategy or `--strategy handoff`. Rebinder creates or reuses a separate bounded
+Codex thread for that source session.
+
 The transfer requires an installed Codex CLI, locally stored Claude Code
 session data visible to Codex's importer, and the session's recorded workspace
 to still exist. The current Codex import surface discovers up to 50 chats from
 the last 30 days. Repeating a transfer resumes the existing imported Codex
-thread; if the Claude transcript changed, Codex appends a new import checkpoint.
+thread. Context-safe handoffs are append-only and add a new bounded checkpoint
+when the Claude source changes. Their local JSONL files live in Rebinder's
+platform data directory and are private to the current user where the platform
+supports file permissions.
 
 ## Other commands
 
@@ -144,9 +171,10 @@ than pretending an incompatible target artifact was created.
 | Conversation graph | Unique IDs and valid parent references |
 | Provenance | Source adapter identity, transformations, export time, and redactions |
 | Harness commands | Native arguments, interactive streams, and process status are preserved |
-| Claude discovery | Lists Codex-supported local Claude sessions without printing transcript content |
-| Claude to Codex | Imports one selected session, resolves the native Codex thread ID, and resumes it in the recorded workspace |
-| Repeat transfer | Reuses the imported thread and lets Codex append changed source-session checkpoints |
+| Claude discovery | Lists Codex-supported local Claude sessions, sizes, and recommended strategies without printing transcript content |
+| Claude to Codex | Selects interactively or by ID, imports through Codex, and resumes the native thread in the recorded workspace |
+| Context guard | Uses a bounded summary-and-recent-message handoff for source transcripts larger than 512 KiB |
+| Repeat transfer | Reuses the strategy-specific thread and appends a bounded checkpoint when a handoff source changes |
 | Worktrees | Reuses an existing recorded worktree; missing workspace paths fail closed |
 | Compatibility | General provider capability and information-loss reports remain pending |
 | Codex to Claude | Not implemented; exits closed with code `2` |
@@ -197,13 +225,14 @@ sh scripts/test-installer.sh
 
 ## Security
 
-Session packages and provider session stores may contain sensitive workspace
-and conversation state. Claude-to-Codex transfer asks the local Codex
-app-server to import only the selected session; it does not select settings,
-credentials, plugins, skills, or MCP configuration. Rebinder fails closed on
-invalid structure, unsafe paths, missing workspaces, integrity failures, and
-provenance mismatches. Report vulnerabilities through the private process in
-[SECURITY.md](SECURITY.md), not a public issue.
+Session packages, provider session stores, and context-safe handoff files may
+contain sensitive workspace and conversation state. Claude-to-Codex transfer
+asks the local Codex app-server to import only the selected session; it does not
+select settings, credentials, plugins, skills, or MCP configuration. Rebinder
+never prints handoff content and rejects symlinked handoff targets. It fails
+closed on invalid structure, unsafe paths, missing workspaces, integrity
+failures, and provenance mismatches. Report vulnerabilities through the private
+process in [SECURITY.md](SECURITY.md), not a public issue.
 
 ## License
 
