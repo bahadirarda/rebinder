@@ -31,7 +31,9 @@ Codex instead of writing Codex's private session representation:
 Rebinder
     -> Codex app-server externalAgentConfig/detect
     -> Select one Claude Code SESSIONS migration
-    -> Codex app-server externalAgentConfig/import
+    -> Full: Codex app-server externalAgentConfig/import
+       Handoff: Codex app-server thread/start or thread/resume
+                -> thread/inject_items with a bounded checkpoint
     -> Native Codex thread ID
     -> codex resume in the recorded Claude workspace
 ```
@@ -82,9 +84,10 @@ cross-document invariants before exposing inspection data.
 Provider discovery and parsing MUST NOT be introduced into the canonical
 validation modules. The Claude-to-Codex native bridge is isolated in the
 transfer and handoff modules and communicates with Codex over newline-delimited
-JSON-RPC. Full import leaves parsing to Codex. Context-safe import streams only
+JSON-RPC. Full import leaves parsing to Codex. The context-safe path streams only
 Claude message text and compact-summary records into a bounded Rebinder-owned
-handoff; neither path writes Codex session files.
+handoff, then uses Codex's native thread APIs to persist that checkpoint;
+neither path writes Codex session files directly.
 
 ## CLI command boundaries
 
@@ -110,6 +113,6 @@ For Claude-to-Codex, omission of the session ID opens an interactive picker when
 standard streams are terminals. In non-interactive use it selects only the
 latest session whose recorded `cwd` resolves to the current directory. An
 explicit ID can select another discovered session. The auto strategy routes
-large sources through a bounded, persistent handoff before the target-native
-import. A missing recorded directory is an error; the MVP reuses existing
+large sources through a bounded, persistent handoff injected into a native
+Codex thread. A missing recorded directory is an error; the MVP reuses existing
 worktrees but does not recreate them.

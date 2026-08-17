@@ -200,8 +200,8 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
 
     match (prepared.strategy, prepared.imported) {
         (ClaudeTransferStrategy::Handoff, true) => eprintln!(
-            "rebinder: imported a context-safe handoff for Claude Code session {} as Codex thread {}",
-            prepared.source_session_id, prepared.codex_thread_id
+            "rebinder: created or updated context-safe Codex thread {} for Claude Code session {}",
+            prepared.codex_thread_id, prepared.source_session_id
         ),
         (ClaudeTransferStrategy::Handoff, false) => eprintln!(
             "rebinder: reusing the context-safe Codex thread {} for Claude Code session {}",
@@ -220,7 +220,7 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
         let size = prepared
             .source_size_bytes
             .map_or_else(|| "unknown size".to_owned(), human_bytes);
-        eprintln!("rebinder: bounded {size} source history before native Codex import");
+        eprintln!("rebinder: bounded {size} source history before native Codex injection");
     }
     eprintln!("rebinder: resuming in {}", prepared.cwd.display());
 

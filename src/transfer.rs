@@ -15,7 +15,9 @@ use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::handoff::{
-    FULL_IMPORT_MAX_SOURCE_BYTES, prepare_context_safe_handoff, recommended_handoff, source_size,
+    FULL_IMPORT_MAX_SOURCE_BYTES, completed_handoff_thread, prepare_context_safe_handoff,
+    recommended_handoff, record_completed_handoff_binding, record_pending_handoff_binding,
+    source_size,
 };
 
 const CLAUDE_CODE_SOURCE: &str = "claude-code";
@@ -54,7 +56,7 @@ pub enum ClaudeTransferStrategy {
     Auto,
     /// Import the complete Claude transcript through Codex's native importer.
     Full,
-    /// Import a bounded checkpoint built from Claude's latest compact summary and recent messages.
+    /// Create or update a native Codex thread with a bounded Claude checkpoint.
     Handoff,
 }
 
@@ -108,9 +110,9 @@ pub enum TransferError {
     ImportFailed(String),
     #[error("cannot prepare a context-safe Claude handoff: {0}")]
     Handoff(String),
-    #[error("Codex completed the import without returning a target thread ID")]
+    #[error("Codex did not return a target thread ID")]
     MissingCodexThread,
-    #[error("cannot launch imported Codex thread: {0}")]
+    #[error("cannot launch Codex thread: {0}")]
     CodexLaunch(#[source] std::io::Error),
 }
 
@@ -119,9 +121,10 @@ struct SessionRecord {
     public: ClaudeSession,
     migration_item: Option<Value>,
     imported_at_ms: Option<u64>,
+    full_import_thread_id: Option<String>,
 }
 
-/// Discover Claude Code sessions through Codex's external-agent import API.
+/// Discover Claude Code sessions through Codex's external-agent API.
 pub fn discover_claude_sessions() -> Result<Vec<ClaudeSession>, TransferError> {
     let current_dir = std::env::current_dir().map_err(TransferError::CurrentDirectory)?;
     let mut app_server = CodexAppServer::launch(OsStr::new("codex"))?;
@@ -168,8 +171,7 @@ pub fn prepare_claude_to_codex_with_strategy(
                 (thread_id, true)
             } else {
                 let thread_id = selected
-                    .public
-                    .codex_thread_id
+                    .full_import_thread_id
                     .clone()
                     .ok_or(TransferError::MissingCodexThread)?;
                 (thread_id, false)
@@ -183,18 +185,24 @@ pub fn prepare_claude_to_codex_with_strategy(
                 &selected.public.cwd,
             )
             .map_err(|error| TransferError::Handoff(error.to_string()))?;
-            let histories = app_server.read_import_histories()?;
-            let existing = imported_thread_from_histories(&histories, &handoff.path);
-
-            if let (false, Some(thread_id)) = (handoff.appended, existing) {
+            if handoff.injected {
+                let thread_id = handoff
+                    .codex_thread_id
+                    .clone()
+                    .ok_or(TransferError::MissingCodexThread)?;
                 (thread_id, false)
             } else {
-                let migration_item = handoff_migration_item(
-                    &handoff.path,
-                    &selected.public.cwd,
-                    &selected.public.title,
-                );
-                let thread_id = app_server.import_session(&migration_item, &handoff.path)?;
+                let thread_id = if let Some(thread_id) = handoff.codex_thread_id.clone() {
+                    app_server.resume_thread(&thread_id)?;
+                    thread_id
+                } else {
+                    app_server.start_thread(&selected.public.cwd)?
+                };
+                record_pending_handoff_binding(&handoff, &thread_id)
+                    .map_err(|error| TransferError::Handoff(error.to_string()))?;
+                app_server.inject_handoff(&thread_id, &handoff.content)?;
+                record_completed_handoff_binding(&handoff, &thread_id)
+                    .map_err(|error| TransferError::Handoff(error.to_string()))?;
                 (thread_id, true)
             }
         }
@@ -208,27 +216,6 @@ pub fn prepare_claude_to_codex_with_strategy(
         imported,
         strategy: resolved_strategy,
         source_size_bytes,
-    })
-}
-
-fn handoff_migration_item(path: &Path, cwd: &Path, title: &str) -> Value {
-    json!({
-        "itemType": "SESSIONS",
-        "description": "Import Rebinder context-safe Claude handoff",
-        "cwd": null,
-        "details": {
-            "plugins": [],
-            "skills": [],
-            "sessions": [{
-                "path": path,
-                "cwd": cwd,
-                "title": format!("{title} (Rebinder handoff)")
-            }],
-            "mcpServers": [],
-            "hooks": [],
-            "subagents": [],
-            "commands": []
-        }
     })
 }
 
@@ -279,6 +266,9 @@ fn merge_inventory(detected: &Value, histories: &Value) -> Vec<SessionRecord> {
                 .codex_thread_id
                 .clone_from(&previous.public.codex_thread_id);
             merged.imported_at_ms = previous.imported_at_ms;
+            merged
+                .full_import_thread_id
+                .clone_from(&previous.full_import_thread_id);
             if !source_changed_since_import(&merged.public.source_path, previous.imported_at_ms) {
                 merged.public.state = ClaudeSessionState::Imported;
                 merged.migration_item = None;
@@ -290,6 +280,16 @@ fn merge_inventory(detected: &Value, histories: &Value) -> Vec<SessionRecord> {
     }
 
     let mut inventory = records.into_values().collect::<Vec<_>>();
+    for record in &mut inventory {
+        if let Ok(Some(thread_id)) = completed_handoff_thread(&record.public.source_path) {
+            record.public.state = ClaudeSessionState::Imported;
+            if record.public.recommended_strategy == ClaudeTransferStrategy::Handoff
+                || record.public.codex_thread_id.is_none()
+            {
+                record.public.codex_thread_id = Some(thread_id);
+            }
+        }
+    }
     inventory.sort_by_key(|record| Reverse(session_recency(record)));
     inventory
 }
@@ -356,6 +356,7 @@ fn detected_session_records(response: &Value) -> Vec<SessionRecord> {
                 },
                 migration_item: Some(migration_item),
                 imported_at_ms: None,
+                full_import_thread_id: None,
             });
         }
     }
@@ -435,10 +436,11 @@ fn imported_session_records(histories: &Value) -> BTreeMap<String, SessionRecord
                             recommended_strategy: recommended_strategy(&source_path),
                             source_path,
                             state: ClaudeSessionState::Imported,
-                            codex_thread_id: Some(codex_thread_id),
+                            codex_thread_id: Some(codex_thread_id.clone()),
                         },
                         migration_item: None,
                         imported_at_ms,
+                        full_import_thread_id: Some(codex_thread_id),
                     },
                 );
             }
@@ -672,6 +674,56 @@ impl CodexAppServer {
             RPC_TIMEOUT,
             "import history lookup",
         )
+    }
+
+    fn start_thread(&mut self, cwd: &Path) -> Result<String, TransferError> {
+        let result = self.request(
+            5,
+            "thread/start",
+            json!({
+                "cwd": cwd,
+                "serviceName": "rebinder"
+            }),
+            RPC_TIMEOUT,
+            "native handoff thread creation",
+        )?;
+        result
+            .pointer("/thread/id")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+            .ok_or(TransferError::MissingCodexThread)
+    }
+
+    fn resume_thread(&mut self, thread_id: &str) -> Result<(), TransferError> {
+        self.request(
+            5,
+            "thread/resume",
+            json!({ "threadId": thread_id }),
+            RPC_TIMEOUT,
+            "native handoff thread resume",
+        )?;
+        Ok(())
+    }
+
+    fn inject_handoff(&mut self, thread_id: &str, content: &str) -> Result<(), TransferError> {
+        self.request(
+            6,
+            "thread/inject_items",
+            json!({
+                "threadId": thread_id,
+                "items": [{
+                    "type": "message",
+                    "role": "user",
+                    "content": [{
+                        "type": "input_text",
+                        "text": content
+                    }]
+                }]
+            }),
+            RPC_TIMEOUT,
+            "context-safe handoff injection",
+        )?;
+        Ok(())
     }
 
     fn import_session(
@@ -1064,6 +1116,7 @@ mod tests {
                 },
                 migration_item: Some(json!({})),
                 imported_at_ms: None,
+                full_import_thread_id: None,
             })
             .collect();
         let selected = select_session(records, Some("second"), &cwd).expect("select session");
@@ -1088,6 +1141,7 @@ mod tests {
             },
             migration_item: Some(json!({})),
             imported_at_ms: None,
+            full_import_thread_id: None,
         };
         let records = vec![
             record("current-old", current.path(), 10),
