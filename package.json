@@ -1,6 +1,6 @@
 {
   "name": "rebinder",
-  "version": "0.20260817.5",
+  "version": "0.20260818.0",
   "description": "Release tooling for the Rebinder Rust CLI.",
   "private": true,
   "packageManager": "bun@1.3.14",

@@ -6,6 +6,12 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 
 ## [Unreleased]
 
+## [0.20260818.0] - 2026-08-18
+
+### Changed
+
+- Add an interactive Claude session picker and context-safe automatic handoffs for large Claude-to-Codex transfers. Legacy Codex import bindings are recognized without trusting unrelated provider history, and oversized prior imports can be retried into a bounded native Codex thread.
+
 ## [0.20260817.5] - 2026-08-17
 
 ### Changed
@@ -48,7 +54,8 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 - Add the Calendar Versioning release ledger, native distribution foundation,
   and professional MVP documentation structure.
 
-[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.5...HEAD
+[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.0...HEAD
+[0.20260818.0]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.5...v0.20260818.0
 [0.20260817.5]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.4...v0.20260817.5
 [0.20260817.4]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.3...v0.20260817.4
 [0.20260817.3]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.2...v0.20260817.3
