@@ -29,7 +29,7 @@ Usage:
   install.sh [--version <tag>] [--to <directory>]
 
 Options:
-  --version <tag>    Install an exact tag, such as v0.20260817.0.
+  --version <tag>    Install an exact tag, such as v0.20260817.1.
   --to <directory>  Install rebinder into this directory.
   -h, --help        Show this help message.
 
