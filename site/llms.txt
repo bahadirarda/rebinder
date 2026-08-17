@@ -1,0 +1,26 @@
+# Rebinder
+
+> Rebinder is an open-source Rust CLI for cross-harness session continuity between coding agents.
+
+The foundation MVP provides native command passthrough for Codex and Claude CLIs, canonical portable session-package validation, integrity verification, and read-only inspection. The explicit `rebinder transfer` command contract is reserved and currently exits closed because provider export, compatibility reporting, redaction, and target artifact generation are not yet implemented. Rebinder does not claim that provider sessions are interchangeable.
+
+## Product
+
+- [Project README](https://raw.githubusercontent.com/bahadirarda/rebinder/main/README.md): Installation, CLI usage, current boundaries, release identity, and development commands.
+- [Product requirements](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/product/product-requirements.md): Product behavior, user model, requirements, and constraints.
+- [MVP status](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/product/mvp-status.md): Implemented foundation capabilities and pending provider work.
+- [Terminology](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/terminology.md): Canonical project language.
+
+## Architecture and format
+
+- [Architecture](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/architecture/architecture.md): Component boundaries and the intended transfer pipeline.
+- [Interchange Format 0.1.0](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/format/interchange-format-0.1.md): Canonical portable session package and validation rules.
+- [CLI command model](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/decisions/ADR-0003-cli-command-model.md): Provider-native passthrough and explicit transfer syntax.
+
+## Distribution
+
+- [Verified shell installer](https://bahadirarda.github.io/rebinder/install.sh): Checksum-verifying native installer for Linux and macOS.
+- [Verified PowerShell installer](https://bahadirarda.github.io/rebinder/install.ps1): Checksum-verifying native installer for Windows x86-64.
+- [Release system](https://raw.githubusercontent.com/bahadirarda/rebinder/main/docs/governance/release-system.md): Calendar versions, protected release automation, checksums, and attestations.
+- [GitHub Releases](https://github.com/bahadirarda/rebinder/releases): Native binaries, installers, checksums, metadata, and attestations.
+- [Source repository](https://github.com/bahadirarda/rebinder): Rust source, schemas, examples, documentation, and delivery workflows.

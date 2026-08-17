@@ -10,15 +10,16 @@
     "type": "git",
     "url": "git+https://github.com/bahadirarda/rebinder.git"
   },
-  "homepage": "https://github.com/bahadirarda/rebinder",
+  "homepage": "https://bahadirarda.github.io/rebinder/",
   "bugs": {
     "url": "https://github.com/bahadirarda/rebinder/issues"
   },
   "scripts": {
     "build": "cargo build --release --locked",
-    "check": "bun run check:release && bun run check:docs && bun run check:rust",
+    "check": "bun run check:release && bun run check:docs && bun run check:site && bun run check:rust",
     "check:docs": "bun scripts/validate-docs.ts",
     "check:release": "bun test scripts/release && bun scripts/release/validate.ts",
+    "check:site": "bun scripts/validate-site.ts",
     "check:rust": "cargo fmt --all --check && cargo clippy --all-targets --all-features --locked -- -D warnings && cargo test --all-features --locked",
     "changeset": "changeset",
     "changeset:status": "changeset status --verbose",

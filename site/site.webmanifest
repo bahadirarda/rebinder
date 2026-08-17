@@ -1,0 +1,18 @@
+{
+  "name": "Rebinder",
+  "short_name": "Rebinder",
+  "description": "Cross-harness session continuity for coding agents.",
+  "start_url": "/rebinder/",
+  "scope": "/rebinder/",
+  "display": "standalone",
+  "background_color": "#06090f",
+  "theme_color": "#06090f",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
