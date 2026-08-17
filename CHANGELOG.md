@@ -6,6 +6,12 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 
 ## [Unreleased]
 
+## [0.20260817.4] - 2026-08-17
+
+### Changed
+
+- Run GitHub Pages delivery on the current Node 24 action releases.
+
 ## [0.20260817.3] - 2026-08-17
 
 ### Changed
@@ -34,7 +40,8 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 - Add the Calendar Versioning release ledger, native distribution foundation,
   and professional MVP documentation structure.
 
-[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.3...HEAD
+[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.4...HEAD
+[0.20260817.4]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.3...v0.20260817.4
 [0.20260817.3]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.2...v0.20260817.3
 [0.20260817.2]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.1...v0.20260817.2
 [0.20260817.1]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.0...v0.20260817.1
