@@ -28,7 +28,7 @@ rebinder claude <native Claude arguments>
 Cross-harness transfer:
 
 ```text
-rebinder transfer --from <source> --to <target> [session-id] -- [target arguments]
+rebinder transfer --from <source> --to <target> [session-id] [--strategy <strategy>] -- [target arguments]
 ```
 
 The facade forwards arguments and interactive standard streams unchanged and
@@ -44,7 +44,11 @@ rebinder sessions claude
 rebinder transfer [session-id] --from claude --to codex -- [Codex arguments]
 ```
 
-When `session-id` is omitted, discovery is scoped to the current workspace.
+When `session-id` is omitted in a terminal, transfer presents an interactive
+source selector. When no terminal is available, discovery stays scoped to the
+current workspace so scripts remain deterministic. `auto`, `full`, and
+`handoff` are Rebinder-owned transfer strategies and cannot collide with target
+arguments after `--`.
 
 ## Consequences
 

@@ -122,7 +122,15 @@ A snapshot of runtime or workflow state at a defined point in execution. A check
 
 ## Handoff Summary
 
-A structured summary intended to help another agent or operator continue work. `Handoff` is not used as the name of cross-harness migration.
+A structured summary intended to help another agent or operator continue work.
+
+## Context-Safe Handoff
+
+A bounded, derived source-session checkpoint containing a compact summary and
+recent visible messages. Rebinder uses it as an input to the target-native
+import bridge when a complete transcript would risk exhausting the target
+context window. The handoff is an implementation strategy inside a
+cross-harness transfer, not a synonym for the transfer itself.
 
 ## Provenance
 

@@ -17,9 +17,10 @@ without client-side rendering.
 
 The website presents the operational Claude-to-Codex bridge separately from
 planned provider-neutral transfer behavior. It may describe Claude session
-discovery, native Codex session import, recorded-workspace resume, native
-command passthrough, session-package validation and inspection, the interchange
-format, and verified native releases as available. It MUST identify
+discovery, interactive source selection, context-safe large-session handoff,
+native Codex session import, recorded-workspace resume, native command
+passthrough, session-package validation and inspection, the interchange format,
+and verified native releases as available. It MUST identify
 Codex-to-Claude transfer, missing-worktree reconstruction, and general
 compatibility reporting as pending.
 

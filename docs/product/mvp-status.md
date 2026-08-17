@@ -36,19 +36,28 @@ README examples and release notes MUST preserve this distinction.
 
 ## Operational transfer path
 
-`rebinder transfer [session] --from claude --to codex -- [target args]` is
+`rebinder transfer [session] --from claude --to codex [--strategy
+auto|full|handoff] -- [target args]` is
 operational for local Claude Code sessions supported by the installed Codex
 importer. Rebinder selects only the `SESSIONS` migration item, waits for the
 native Codex thread ID, verifies that the recorded workspace exists, and runs
 `codex resume` in that directory.
 
-Omitting the session ID is allowed only when discovery finds a session whose
-recorded working directory matches the current directory. Explicit selection
-uses the Claude provider session ID shown by `rebinder sessions claude`.
+Omitting the session ID in an interactive terminal opens an arrow-key session
+picker. Escape cancels without importing. Non-interactive omission selects only
+the newest session whose recorded working directory matches the current
+directory. Explicit selection uses the provider session ID shown by `rebinder
+sessions claude`.
+
+The automatic strategy fully imports sources up to 512 KiB. Larger sources use
+an append-only, context-safe handoff built from the latest compact summary and
+bounded recent visible messages. This keeps prior oversized imports intact
+while creating or reusing a separate resumable Codex thread.
 
 Rebinder never edits Claude transcript files or writes directly into Codex's
-private session store. Codex owns conversion, import-ledger updates, and native
-thread creation.
+private session store. It stores bounded handoff input in its own platform data
+directory; Codex owns conversion, import-ledger updates, and native thread
+creation.
 
 ## Pending MVP capabilities
 

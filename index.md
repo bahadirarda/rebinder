@@ -30,8 +30,9 @@ Rebinder rebinds an agent session's portable state to a different coding agent h
 ## Status
 
 The project has an operational one-way transfer MVP. Local Claude Code sessions
-can be discovered, imported into native Codex threads, and resumed in their
-recorded workspace. Interchange schema `0.1.0`, Rust package validation and
+can be selected interactively, imported into native Codex threads, and resumed
+in their recorded workspace. Large transcripts use a bounded context-safe
+handoff by default. Interchange schema `0.1.0`, Rust package validation and
 inspection, verified native distribution, command passthrough, and the product
 site are also implemented. Codex-to-Claude and provider-neutral compatibility
 reporting remain pending.

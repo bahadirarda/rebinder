@@ -81,8 +81,10 @@ cross-document invariants before exposing inspection data.
 
 Provider discovery and parsing MUST NOT be introduced into the canonical
 validation modules. The Claude-to-Codex native bridge is isolated in the
-transfer module and communicates with Codex over newline-delimited JSON-RPC.
-It neither parses Claude transcript content nor writes Codex session files.
+transfer and handoff modules and communicates with Codex over newline-delimited
+JSON-RPC. Full import leaves parsing to Codex. Context-safe import streams only
+Claude message text and compact-summary records into a bounded Rebinder-owned
+handoff; neither path writes Codex session files.
 
 ## CLI command boundaries
 
@@ -93,7 +95,7 @@ rebinder <harness> <native arguments>
     -> transparent harness command facade
     -> provider process
 
-rebinder transfer --from <source> --to <target> [session] -- [target arguments]
+rebinder transfer --from <source> --to <target> [session] [--strategy <strategy>] -- [target arguments]
     -> direction-specific transfer adapter
     -> target-native continuation artifact
     -> target provider process
@@ -104,7 +106,10 @@ them and MUST inherit interactive standard streams. The cross-harness transfer
 path owns its source and target flags; arguments following `--` belong only to
 the target provider.
 
-For Claude-to-Codex, omission of the session ID selects only the latest session
-whose recorded `cwd` resolves to the current directory. An explicit ID can
-select another discovered session. A missing recorded directory is an error;
-the MVP reuses existing worktrees but does not recreate them.
+For Claude-to-Codex, omission of the session ID opens an interactive picker when
+standard streams are terminals. In non-interactive use it selects only the
+latest session whose recorded `cwd` resolves to the current directory. An
+explicit ID can select another discovered session. The auto strategy routes
+large sources through a bounded, persistent handoff before the target-native
+import. A missing recorded directory is an error; the MVP reuses existing
+worktrees but does not recreate them.

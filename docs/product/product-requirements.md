@@ -63,6 +63,29 @@ use the target provider's checkpoint behavior rather than create an unrelated
 duplicate. When the recorded workspace is missing, the bridge MUST stop before
 starting Codex.
 
+### FR-011 — Interactive source selection
+
+When standard input and standard error are terminals and no session ID is
+provided, Claude-to-Codex transfer MUST present the discovered sessions as an
+interactive selector. Each choice MUST identify its state, title, recorded
+workspace, source size, and recommended strategy. Escape MUST cancel without
+importing. Non-interactive invocation MUST retain deterministic current-workspace
+selection.
+
+### FR-012 — Context-safe large-session handoff
+
+The default transfer strategy MUST prevent a large imported transcript from
+immediately exhausting the target context window. Sources larger than 512 KiB
+MUST use a bounded handoff made from the latest Claude compact summary and
+recent visible user and assistant text. Thinking, tool calls, and tool results
+MUST NOT be copied into the handoff. Users MAY explicitly request full or
+handoff behavior.
+
+Derived handoffs MUST be append-only, keyed stably to the source path, private
+to the current user where permissions are available, and rejected when their
+target path is a symlink. An unchanged source MUST reuse its existing native
+Codex thread.
+
 ## Quality requirements
 
 - The interchange package SHOULD be human-readable and Git-friendly.

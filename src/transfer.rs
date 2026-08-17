@@ -14,6 +14,10 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use thiserror::Error;
 
+use crate::handoff::{
+    FULL_IMPORT_MAX_SOURCE_BYTES, prepare_context_safe_handoff, recommended_handoff, source_size,
+};
+
 const CLAUDE_CODE_SOURCE: &str = "claude-code";
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(180);
@@ -28,6 +32,8 @@ pub struct ClaudeSession {
     #[serde(skip_serializing)]
     pub source_path: PathBuf,
     pub updated_at_unix_seconds: Option<u64>,
+    pub source_size_bytes: Option<u64>,
+    pub recommended_strategy: ClaudeTransferStrategy,
     pub state: ClaudeSessionState,
     pub codex_thread_id: Option<String>,
 }
@@ -40,6 +46,18 @@ pub enum ClaudeSessionState {
     Imported,
 }
 
+/// How Rebinder should move a Claude Code session into Codex.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaudeTransferStrategy {
+    /// Choose a native full import for small sessions and a bounded handoff for large sessions.
+    Auto,
+    /// Import the complete Claude transcript through Codex's native importer.
+    Full,
+    /// Import a bounded checkpoint built from Claude's latest compact summary and recent messages.
+    Handoff,
+}
+
 /// Result of preparing a Claude Code session for continuation in Codex.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedCodexSession {
@@ -48,6 +66,8 @@ pub struct PreparedCodexSession {
     pub cwd: PathBuf,
     pub codex_thread_id: String,
     pub imported: bool,
+    pub strategy: ClaudeTransferStrategy,
+    pub source_size_bytes: Option<u64>,
 }
 
 /// Errors returned by Claude-to-Codex discovery and transfer.
@@ -86,6 +106,8 @@ pub enum TransferError {
     MissingWorkspace { session_id: String, cwd: PathBuf },
     #[error("Codex reported a session import failure: {0}")]
     ImportFailed(String),
+    #[error("cannot prepare a context-safe Claude handoff: {0}")]
+    Handoff(String),
     #[error("Codex completed the import without returning a target thread ID")]
     MissingCodexThread,
     #[error("cannot launch imported Codex thread: {0}")]
@@ -111,6 +133,14 @@ pub fn discover_claude_sessions() -> Result<Vec<ClaudeSession>, TransferError> {
 pub fn prepare_claude_to_codex(
     session_id: Option<&str>,
 ) -> Result<PreparedCodexSession, TransferError> {
+    prepare_claude_to_codex_with_strategy(session_id, ClaudeTransferStrategy::Auto)
+}
+
+/// Import a Claude Code session using the requested transfer strategy.
+pub fn prepare_claude_to_codex_with_strategy(
+    session_id: Option<&str>,
+    strategy: ClaudeTransferStrategy,
+) -> Result<PreparedCodexSession, TransferError> {
     let current_dir = std::env::current_dir().map_err(TransferError::CurrentDirectory)?;
     let mut app_server = CodexAppServer::launch(OsStr::new("codex"))?;
     let inventory = load_inventory(&mut app_server, &current_dir)?;
@@ -123,16 +153,51 @@ pub fn prepare_claude_to_codex(
         });
     }
 
-    let (codex_thread_id, imported) = if let Some(migration_item) = selected.migration_item {
-        let thread_id = app_server.import_session(&migration_item, &selected.public.source_path)?;
-        (thread_id, true)
-    } else {
-        let thread_id = selected
-            .public
-            .codex_thread_id
-            .clone()
-            .ok_or(TransferError::MissingCodexThread)?;
-        (thread_id, false)
+    let resolved_strategy = match strategy {
+        ClaudeTransferStrategy::Auto => selected.public.recommended_strategy,
+        explicit => explicit,
+    };
+    let source_size_bytes = selected.public.source_size_bytes;
+
+    let (codex_thread_id, imported) = match resolved_strategy {
+        ClaudeTransferStrategy::Auto => unreachable!("auto strategy must resolve before import"),
+        ClaudeTransferStrategy::Full => {
+            if let Some(migration_item) = selected.migration_item.as_ref() {
+                let thread_id =
+                    app_server.import_session(migration_item, &selected.public.source_path)?;
+                (thread_id, true)
+            } else {
+                let thread_id = selected
+                    .public
+                    .codex_thread_id
+                    .clone()
+                    .ok_or(TransferError::MissingCodexThread)?;
+                (thread_id, false)
+            }
+        }
+        ClaudeTransferStrategy::Handoff => {
+            let handoff = prepare_context_safe_handoff(
+                &selected.public.source_path,
+                &selected.public.id,
+                &selected.public.title,
+                &selected.public.cwd,
+            )
+            .map_err(|error| TransferError::Handoff(error.to_string()))?;
+            let histories = app_server.read_import_histories()?;
+            let existing = imported_thread_from_histories(&histories, &handoff.path);
+
+            if let (false, Some(thread_id)) = (handoff.appended, existing) {
+                (thread_id, false)
+            } else {
+                let migration_item = handoff_migration_item(
+                    &handoff.path,
+                    &selected.public.cwd,
+                    &selected.public.title,
+                );
+                let thread_id = app_server.import_session(&migration_item, &handoff.path)?;
+                (thread_id, true)
+            }
+        }
     };
 
     Ok(PreparedCodexSession {
@@ -141,6 +206,29 @@ pub fn prepare_claude_to_codex(
         cwd: selected.public.cwd,
         codex_thread_id,
         imported,
+        strategy: resolved_strategy,
+        source_size_bytes,
+    })
+}
+
+fn handoff_migration_item(path: &Path, cwd: &Path, title: &str) -> Value {
+    json!({
+        "itemType": "SESSIONS",
+        "description": "Import Rebinder context-safe Claude handoff",
+        "cwd": null,
+        "details": {
+            "plugins": [],
+            "skills": [],
+            "sessions": [{
+                "path": path,
+                "cwd": cwd,
+                "title": format!("{title} (Rebinder handoff)")
+            }],
+            "mcpServers": [],
+            "hooks": [],
+            "subagents": [],
+            "commands": []
+        }
     })
 }
 
@@ -191,6 +279,10 @@ fn merge_inventory(detected: &Value, histories: &Value) -> Vec<SessionRecord> {
                 .codex_thread_id
                 .clone_from(&previous.public.codex_thread_id);
             merged.imported_at_ms = previous.imported_at_ms;
+            if !source_changed_since_import(&merged.public.source_path, previous.imported_at_ms) {
+                merged.public.state = ClaudeSessionState::Imported;
+                merged.migration_item = None;
+            }
             records.insert(key, merged);
         } else {
             records.insert(key, detected_record);
@@ -256,6 +348,8 @@ fn detected_session_records(response: &Value) -> Vec<SessionRecord> {
                     title,
                     cwd,
                     updated_at_unix_seconds: modified_unix_seconds(&source_path),
+                    source_size_bytes: source_size(&source_path),
+                    recommended_strategy: recommended_strategy(&source_path),
                     source_path,
                     state: ClaudeSessionState::ReadyToImport,
                     codex_thread_id: None,
@@ -279,7 +373,8 @@ fn imported_session_records(histories: &Value) -> BTreeMap<String, SessionRecord
     };
 
     for history in history_entries {
-        if history.get("providerId").and_then(Value::as_str) != Some(CLAUDE_CODE_SOURCE) {
+        let provider = history.get("providerId").and_then(Value::as_str);
+        if provider.is_some_and(|provider| provider != CLAUDE_CODE_SOURCE) {
             continue;
         }
         let imported_at_ms = history.get("completedAtMs").and_then(Value::as_u64);
@@ -297,6 +392,9 @@ fn imported_session_records(histories: &Value) -> BTreeMap<String, SessionRecord
             else {
                 continue;
             };
+            if !looks_like_claude_session_path(&source_path) {
+                continue;
+            }
             let Some(codex_thread_id) = success
                 .get("target")
                 .and_then(Value::as_str)
@@ -333,6 +431,8 @@ fn imported_session_records(histories: &Value) -> BTreeMap<String, SessionRecord
                             title,
                             cwd,
                             updated_at_unix_seconds: modified_unix_seconds(&source_path),
+                            source_size_bytes: source_size(&source_path),
+                            recommended_strategy: recommended_strategy(&source_path),
                             source_path,
                             state: ClaudeSessionState::Imported,
                             codex_thread_id: Some(codex_thread_id),
@@ -408,6 +508,55 @@ fn modified_unix_seconds(path: &Path) -> Option<u64> {
         .ok()
         .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_secs())
+}
+
+fn modified_unix_milliseconds(path: &Path) -> Option<u64> {
+    path.metadata()
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+}
+
+fn source_changed_since_import(path: &Path, imported_at_ms: Option<u64>) -> bool {
+    modified_unix_milliseconds(path)
+        .zip(imported_at_ms)
+        .is_some_and(|(modified_at_ms, imported_at_ms)| modified_at_ms > imported_at_ms)
+}
+
+fn recommended_strategy(path: &Path) -> ClaudeTransferStrategy {
+    if recommended_handoff(path) {
+        ClaudeTransferStrategy::Handoff
+    } else {
+        debug_assert!(
+            source_size(path).is_none_or(|bytes| bytes <= FULL_IMPORT_MAX_SOURCE_BYTES),
+            "full import recommendation must stay within its size threshold"
+        );
+        ClaudeTransferStrategy::Full
+    }
+}
+
+fn looks_like_claude_session_path(path: &Path) -> bool {
+    if let Some(config_directory) = std::env::var_os("CLAUDE_CONFIG_DIR") {
+        let projects = PathBuf::from(config_directory).join("projects");
+        if path.starts_with(&projects)
+            || path
+                .canonicalize()
+                .ok()
+                .zip(projects.canonicalize().ok())
+                .is_some_and(|(path, projects)| path.starts_with(projects))
+        {
+            return true;
+        }
+    }
+
+    let components = path
+        .components()
+        .map(std::path::Component::as_os_str)
+        .collect::<Vec<_>>();
+    components
+        .windows(2)
+        .any(|pair| pair[0] == ".claude" && pair[1] == "projects")
 }
 
 fn path_key(path: &Path) -> String {
@@ -717,6 +866,8 @@ fn success_source_matches(success: &Value, source_path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     fn detected(source: &Path, cwd: &Path, title: &str) -> Value {
@@ -770,7 +921,7 @@ mod tests {
                 "successes": [{
                     "itemType": "SESSIONS",
                     "cwd": "/tmp/project",
-                    "source": "/tmp/1234.jsonl",
+                    "source": "/tmp/.claude/projects/project/1234.jsonl",
                     "target": "019c-thread",
                     "title": "Fix parser"
                 }]
@@ -787,7 +938,7 @@ mod tests {
     }
 
     #[test]
-    fn history_ignores_sessions_without_an_explicit_claude_provider() {
+    fn history_ignores_untrusted_providerless_session_paths() {
         let histories = json!({
             "data": [{
                 "completedAtMs": 42,
@@ -805,23 +956,58 @@ mod tests {
     }
 
     #[test]
-    fn unchanged_imported_session_resumes_without_another_migration() {
+    fn history_accepts_legacy_providerless_entries_from_the_claude_store() {
         let histories = json!({
             "data": [{
-                "providerId": "claude-code",
                 "completedAtMs": 42,
                 "successes": [{
                     "itemType": "SESSIONS",
                     "cwd": "/tmp/project",
-                    "source": "/tmp/1234.jsonl",
+                    "source": "/tmp/.claude/projects/project/1234.jsonl",
                     "target": "019c-thread",
                     "title": "Fix parser"
                 }]
             }]
         });
-        let inventory = merge_inventory(&json!({ "items": [] }), &histories);
+
+        let records = imported_session_records(&histories);
+        assert_eq!(
+            records
+                .values()
+                .next()
+                .and_then(|record| record.public.codex_thread_id.as_deref()),
+            Some("019c-thread")
+        );
+    }
+
+    #[test]
+    fn unchanged_imported_session_resumes_without_another_migration() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let source = fixture.path().join(".claude/projects/project/1234.jsonl");
+        fs::create_dir_all(source.parent().expect("source parent")).expect("source directory");
+        fs::write(&source, "{\"type\":\"user\"}\n").expect("source session");
+        let cwd = fixture.path().join("project");
+        fs::create_dir(&cwd).expect("workspace");
+        let completed_at = modified_unix_milliseconds(&source)
+            .expect("source timestamp")
+            .saturating_add(1_000);
+        let histories = json!({
+            "data": [{
+                "providerId": "claude-code",
+                "completedAtMs": completed_at,
+                "successes": [{
+                    "itemType": "SESSIONS",
+                    "cwd": cwd,
+                    "source": source,
+                    "target": "019c-thread",
+                    "title": "Fix parser"
+                }]
+            }]
+        });
+        let inventory = merge_inventory(&detected(&source, &cwd, "Fix parser"), &histories);
         assert_eq!(inventory.len(), 1);
         assert!(inventory[0].migration_item.is_none());
+        assert_eq!(inventory[0].public.state, ClaudeSessionState::Imported);
         assert_eq!(
             inventory[0].public.codex_thread_id.as_deref(),
             Some("019c-thread")
@@ -830,8 +1016,12 @@ mod tests {
 
     #[test]
     fn changed_imported_session_keeps_its_binding_and_requests_a_checkpoint() {
-        let source = Path::new("/tmp/1234.jsonl");
-        let cwd = Path::new("/tmp/project");
+        let fixture = tempfile::tempdir().expect("fixture");
+        let source = fixture.path().join(".claude/projects/project/1234.jsonl");
+        fs::create_dir_all(source.parent().expect("source parent")).expect("source directory");
+        fs::write(&source, "{\"type\":\"user\"}\n").expect("source session");
+        let cwd = fixture.path().join("project");
+        fs::create_dir(&cwd).expect("workspace");
         let histories = json!({
             "data": [{
                 "providerId": "claude-code",
@@ -845,7 +1035,7 @@ mod tests {
                 }]
             }]
         });
-        let inventory = merge_inventory(&detected(source, cwd, "Fix parser"), &histories);
+        let inventory = merge_inventory(&detected(&source, &cwd, "Fix parser"), &histories);
         assert_eq!(inventory.len(), 1);
         assert!(inventory[0].migration_item.is_some());
         assert_eq!(
@@ -867,6 +1057,8 @@ mod tests {
                     cwd: cwd.clone(),
                     source_path: PathBuf::from(format!("/tmp/{id}.jsonl")),
                     updated_at_unix_seconds: None,
+                    source_size_bytes: None,
+                    recommended_strategy: ClaudeTransferStrategy::Full,
                     state: ClaudeSessionState::ReadyToImport,
                     codex_thread_id: None,
                 },
@@ -889,6 +1081,8 @@ mod tests {
                 cwd: cwd.to_path_buf(),
                 source_path: cwd.join(format!("{id}.jsonl")),
                 updated_at_unix_seconds: Some(updated),
+                source_size_bytes: None,
+                recommended_strategy: ClaudeTransferStrategy::Full,
                 state: ClaudeSessionState::ReadyToImport,
                 codex_thread_id: None,
             },

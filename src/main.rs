@@ -1,10 +1,16 @@
-use std::{ffi::OsString, path::PathBuf, process::ExitCode};
+use std::{
+    ffi::OsString,
+    io::{self, IsTerminal},
+    path::PathBuf,
+    process::ExitCode,
+};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use dialoguer::{Select, theme::ColorfulTheme};
 use rebinder::{
-    ClaudeSession, Harness, Inspection, ValidationReport, discover_claude_sessions,
-    inspect_package, launch_prepared_codex_session, prepare_claude_to_codex, run_harness,
-    validate_package,
+    ClaudeSession, ClaudeTransferStrategy, Harness, Inspection, ValidationReport,
+    discover_claude_sessions, inspect_package, launch_prepared_codex_session,
+    prepare_claude_to_codex_with_strategy, run_harness, validate_package,
 };
 
 #[derive(Debug, Parser)]
@@ -62,9 +68,12 @@ struct TransferArgs {
     /// Harness in which the session should continue.
     #[arg(short = 't', long, value_enum)]
     to: HarnessArgument,
-    /// Provider-scoped source session ID; omit to let the adapter discover one.
+    /// Provider-scoped source session ID; omit for an interactive picker in a terminal.
     #[arg(value_name = "SESSION_ID")]
     session_id: Option<String>,
+    /// Transfer policy: choose automatically, import the full transcript, or use a bounded handoff.
+    #[arg(long, value_enum, default_value_t = TransferStrategyArgument::Auto)]
+    strategy: TransferStrategyArgument,
     /// Arguments passed to the target harness after migration.
     #[arg(last = true, value_name = "TARGET_ARGS", allow_hyphen_values = true)]
     target_arguments: Vec<OsString>,
@@ -84,6 +93,23 @@ struct SessionsArgs {
 enum HarnessArgument {
     Codex,
     Claude,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum TransferStrategyArgument {
+    Auto,
+    Full,
+    Handoff,
+}
+
+impl From<TransferStrategyArgument> for ClaudeTransferStrategy {
+    fn from(value: TransferStrategyArgument) -> Self {
+        match value {
+            TransferStrategyArgument::Auto => Self::Auto,
+            TransferStrategyArgument::Full => Self::Full,
+            TransferStrategyArgument::Handoff => Self::Handoff,
+        }
+    }
 }
 
 impl From<HarnessArgument> for Harness {
@@ -146,7 +172,25 @@ fn main() -> ExitCode {
 }
 
 fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
-    let prepared = match prepare_claude_to_codex(arguments.session_id.as_deref()) {
+    let mut session_id = arguments.session_id;
+    if session_id.is_none() && io::stdin().is_terminal() && io::stderr().is_terminal() {
+        session_id = match pick_claude_session() {
+            Ok(Some(session_id)) => Some(session_id),
+            Ok(None) => {
+                eprintln!("rebinder: transfer cancelled");
+                return ExitCode::SUCCESS;
+            }
+            Err(error) => {
+                eprintln!("error: {error}");
+                return ExitCode::from(2);
+            }
+        };
+    }
+
+    let prepared = match prepare_claude_to_codex_with_strategy(
+        session_id.as_deref(),
+        arguments.strategy.into(),
+    ) {
         Ok(prepared) => prepared,
         Err(error) => {
             eprintln!("error: {error}");
@@ -154,16 +198,29 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
         }
     };
 
-    if prepared.imported {
-        eprintln!(
+    match (prepared.strategy, prepared.imported) {
+        (ClaudeTransferStrategy::Handoff, true) => eprintln!(
+            "rebinder: imported a context-safe handoff for Claude Code session {} as Codex thread {}",
+            prepared.source_session_id, prepared.codex_thread_id
+        ),
+        (ClaudeTransferStrategy::Handoff, false) => eprintln!(
+            "rebinder: reusing the context-safe Codex thread {} for Claude Code session {}",
+            prepared.codex_thread_id, prepared.source_session_id
+        ),
+        (_, true) => eprintln!(
             "rebinder: imported Claude Code session {} as Codex thread {}",
             prepared.source_session_id, prepared.codex_thread_id
-        );
-    } else {
-        eprintln!(
+        ),
+        (_, false) => eprintln!(
             "rebinder: Claude Code session {} is already bound to Codex thread {}",
             prepared.source_session_id, prepared.codex_thread_id
-        );
+        ),
+    }
+    if prepared.strategy == ClaudeTransferStrategy::Handoff {
+        let size = prepared
+            .source_size_bytes
+            .map_or_else(|| "unknown size".to_owned(), human_bytes);
+        eprintln!("rebinder: bounded {size} source history before native Codex import");
     }
     eprintln!("rebinder: resuming in {}", prepared.cwd.display());
 
@@ -177,6 +234,71 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
             ExitCode::from(127)
         }
     }
+}
+
+fn pick_claude_session() -> Result<Option<String>, String> {
+    let sessions = discover_claude_sessions().map_err(|error| error.to_string())?;
+    if sessions.is_empty() {
+        return Err("no importable Claude Code sessions were found".to_owned());
+    }
+    let labels = sessions.iter().map(session_label).collect::<Vec<_>>();
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("Select a Claude Code session to continue in Codex")
+        .items(&labels)
+        .default(0)
+        .interact_opt()
+        .map_err(|error| format!("cannot read session selection: {error}"))?;
+    Ok(selection.map(|index| sessions[index].id.clone()))
+}
+
+fn session_label(session: &ClaudeSession) -> String {
+    let state = match session.state {
+        rebinder::ClaudeSessionState::ReadyToImport => "ready",
+        rebinder::ClaudeSessionState::Imported => "imported",
+    };
+    let strategy = match session.recommended_strategy {
+        ClaudeTransferStrategy::Handoff => "context-safe handoff",
+        _ => "full import",
+    };
+    let size = session
+        .source_size_bytes
+        .map_or_else(|| "unknown size".to_owned(), human_bytes);
+    let title = truncate(&single_line(&session.title), 58);
+    let workspace = if session.cwd.is_dir() {
+        truncate(&session.cwd.display().to_string(), 72)
+    } else {
+        format!(
+            "{} (missing)",
+            truncate(&session.cwd.display().to_string(), 62)
+        )
+    };
+    format!("[{state}] {title} — {workspace} — {size}, {strategy}")
+}
+
+fn truncate(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_owned();
+    }
+    let kept = max_chars.saturating_sub(1);
+    format!("{}…", value.chars().take(kept).collect::<String>())
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = KIB * 1024;
+    if bytes >= MIB {
+        human_unit(bytes, MIB, "MiB")
+    } else if bytes >= KIB {
+        human_unit(bytes, KIB, "KiB")
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+fn human_unit(bytes: u64, unit: u64, suffix: &str) -> String {
+    let whole = bytes / unit;
+    let decimal = bytes % unit * 10 / unit;
+    format!("{whole}.{decimal} {suffix}")
 }
 
 fn list_sessions(arguments: &SessionsArgs) -> ExitCode {
@@ -211,11 +333,18 @@ fn print_claude_sessions(sessions: &[ClaudeSession]) {
             rebinder::ClaudeSessionState::Imported => "imported",
         };
         println!(
-            "{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}",
             session.id,
             state,
             single_line(&session.title),
-            session.cwd.display()
+            session.cwd.display(),
+            session
+                .source_size_bytes
+                .map_or_else(|| "unknown".to_owned(), human_bytes),
+            match session.recommended_strategy {
+                ClaudeTransferStrategy::Handoff => "handoff",
+                _ => "full",
+            }
         );
     }
 }
@@ -332,5 +461,38 @@ fn validity_exit_code(valid: bool) -> ExitCode {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picker_label_surfaces_state_size_workspace_and_strategy() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let session = ClaudeSession {
+            id: "session-1".to_owned(),
+            title: "A title\nwith control characters".to_owned(),
+            cwd: workspace.path().to_path_buf(),
+            source_path: PathBuf::from("hidden.jsonl"),
+            updated_at_unix_seconds: None,
+            source_size_bytes: Some(46 * 1024 * 1024),
+            recommended_strategy: ClaudeTransferStrategy::Handoff,
+            state: rebinder::ClaudeSessionState::Imported,
+            codex_thread_id: Some("thread-1".to_owned()),
+        };
+
+        let label = session_label(&session);
+        assert!(label.contains("[imported]"));
+        assert!(label.contains("46.0 MiB"));
+        assert!(label.contains("context-safe handoff"));
+        assert!(label.contains(&workspace.path().display().to_string()));
+        assert!(!label.contains('\n'));
+    }
+
+    #[test]
+    fn truncation_keeps_unicode_boundaries() {
+        assert_eq!(truncate("şğüçö", 4), "şğü…");
     }
 }

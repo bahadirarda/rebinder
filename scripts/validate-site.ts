@@ -126,10 +126,11 @@ if (!/^# Rebinder\n\n>\s+\S+/m.test(llms)) {
 
 for (const requiredCopy of [
   "rebinder sessions claude",
-  "rebinder transfer SESSION_ID --from claude --to codex",
-  "rebinder transfer SESSION_ID --from claude --to codex -- --search",
+  "rebinder transfer --from claude --to codex",
+  "rebinder transfer --from claude --to codex -- --search",
+  "context-safe handoff",
   "one-way MVP live",
-  "Missing worktrees",
+  "missing worktrees",
   "0.YYYYMMDD.REVISION",
   "Interchange Format 0.1.0",
 ]) {
