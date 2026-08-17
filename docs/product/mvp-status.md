@@ -21,10 +21,10 @@ README examples and release notes MUST preserve this distinction.
 - SHA-256 file inventory verification
 - Relative-path confinement and symlink rejection
 - Conversation graph and provenance invariants
-- Claude Code session discovery through the Codex external-agent import API
+- Claude Code session discovery through the Codex external-agent API
 - Exact Claude session selection and current-workspace latest-session selection
-- Claude-to-Codex native session import and Codex thread resolution
-- Repeat import checkpointing through Codex's session import ledger
+- Claude-to-Codex native full import and bounded native-thread handoff paths
+- Retry-safe handoff binding and repeat checkpoint injection
 - Native Codex resume in the Claude session's recorded workspace or worktree
 - Fail-closed handling for missing workspaces and unsupported directions
 - Human and JSON session inventory output
@@ -38,10 +38,10 @@ README examples and release notes MUST preserve this distinction.
 
 `rebinder transfer [session] --from claude --to codex [--strategy
 auto|full|handoff] -- [target args]` is
-operational for local Claude Code sessions supported by the installed Codex
-importer. Rebinder selects only the `SESSIONS` migration item, waits for the
-native Codex thread ID, verifies that the recorded workspace exists, and runs
-`codex resume` in that directory.
+operational for local Claude Code sessions detected by the installed Codex
+app-server. Rebinder selects only the `SESSIONS` migration item, resolves a
+native Codex thread ID through the full-import or bounded-handoff path, verifies
+that the recorded workspace exists, and runs `codex resume` in that directory.
 
 Omitting the session ID in an interactive terminal opens an arrow-key session
 picker. Escape cancels without importing. Non-interactive omission selects only
@@ -55,9 +55,9 @@ bounded recent visible messages. This keeps prior oversized imports intact
 while creating or reusing a separate resumable Codex thread.
 
 Rebinder never edits Claude transcript files or writes directly into Codex's
-private session store. It stores bounded handoff input in its own platform data
-directory; Codex owns conversion, import-ledger updates, and native thread
-creation.
+private session store. It stores bounded handoff input and its retry-safe
+binding in its own platform data directory; Codex owns native thread creation,
+history injection, full-import conversion, and session persistence.
 
 ## Pending MVP capabilities
 

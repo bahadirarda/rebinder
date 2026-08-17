@@ -53,9 +53,11 @@ meaning of native provider commands in the harness command facade.
 ### FR-010 — Claude-to-Codex native bridge
 
 The first operational direction MUST discover local Claude Code sessions
-through Codex's supported external-agent migration API, import only the selected
-session, obtain the target Codex thread ID, and resume that thread in the
-source session's recorded workspace. It MUST NOT directly mutate provider
+through Codex's supported external-agent API. A full transfer MUST import only
+the selected session. A context-safe handoff MUST create or resume a native
+Codex thread and inject the bounded checkpoint through supported Codex thread
+APIs. Both paths MUST obtain the target thread ID and resume that thread in the
+source session's recorded workspace. Rebinder MUST NOT directly mutate provider
 session stores or import credentials and configuration as a side effect.
 
 When the source transcript has changed since a prior transfer, the bridge MUST
@@ -83,8 +85,10 @@ handoff behavior.
 
 Derived handoffs MUST be append-only, keyed stably to the source path, private
 to the current user where permissions are available, and rejected when their
-target path is a symlink. An unchanged source MUST reuse its existing native
-Codex thread.
+target path is a symlink. Their source-hash-to-thread binding MUST survive a
+failed attempt. An unchanged source MUST reuse its existing native Codex thread;
+a changed source MUST append and inject a new bounded checkpoint into that
+thread.
 
 ## Quality requirements
 

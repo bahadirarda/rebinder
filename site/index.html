@@ -136,7 +136,7 @@
           </div>
 
           <div class="continuity-demo" data-reveal>
-            <div class="demo-label"><span>01 / Native import bridge</span><span class="live-dot">available now</span></div>
+            <div class="demo-label"><span>01 / Native transfer bridge</span><span class="live-dot">available now</span></div>
             <section class="terminal terminal-source" aria-label="Claude session discovery example">
               <div class="terminal-head"><span>claude code</span><span>source harness</span></div>
               <div class="terminal-body">
@@ -181,8 +181,9 @@
             <h2>Pick up the thread.<br>Change the harness.</h2>
             <p>
               Discover a supported local Claude Code chat, choose it interactively, and continue
-              through Codex's native migration API in the recorded workspace. Large histories are
-              bounded before import. No direct writes to either provider's private session store.
+              through Codex's native APIs in the recorded workspace. Small histories use native
+              import; large histories become bounded checkpoints in a native Codex thread. No
+              direct writes to either provider's private session store.
             </p>
           </div>
 
@@ -363,11 +364,11 @@
               <button type="button" data-copy-target="install-powershell" aria-label="Copy PowerShell install command">Copy</button>
             </div>
             <p class="install-note" data-install-panel="shell">
-              Pin an exact release with <code>REBINDER_VERSION=v0.20260817.5</code>. Review the
+              Pin an exact release with <code>REBINDER_VERSION=v0.20260818.0</code>. Review the
               <a href="install.sh">shell installer source</a> first.
             </p>
             <p class="install-note" data-install-panel="powershell" hidden>
-              Pin an exact release with <code>$env:REBINDER_VERSION='v0.20260817.5'</code>. Review the
+              Pin an exact release with <code>$env:REBINDER_VERSION='v0.20260818.0'</code>. Review the
               <a href="install.ps1">PowerShell installer source</a> first.
             </p>
             <div class="first-run"><span>Then discover a Claude session</span><code>rebinder sessions claude</code></div>

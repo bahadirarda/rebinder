@@ -20,6 +20,17 @@ const MESSAGE_MAX_CHARS: usize = 20_000;
 pub(crate) struct PreparedHandoff {
     pub path: PathBuf,
     pub appended: bool,
+    pub source_sha256: String,
+    pub content: String,
+    pub codex_thread_id: Option<String>,
+    pub injected: bool,
+}
+
+#[derive(Debug, Default)]
+struct HandoffState {
+    latest_source_sha256: Option<String>,
+    codex_thread_id: Option<String>,
+    latest_checkpoint_injected: bool,
 }
 
 #[derive(Debug, Error)]
@@ -73,6 +84,25 @@ pub(crate) fn recommended_handoff(path: &Path) -> bool {
     source_size(path).is_some_and(|bytes| bytes > FULL_IMPORT_MAX_SOURCE_BYTES)
 }
 
+pub(crate) fn completed_handoff_thread(source_path: &Path) -> Result<Option<String>, HandoffError> {
+    let path = handoff_path(source_path)?;
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => {
+            return Err(HandoffError::InspectHandoff { path, source });
+        }
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(HandoffError::UnsafePath(path));
+    }
+    let state = read_handoff_state(&path)?;
+    Ok(state
+        .latest_checkpoint_injected
+        .then_some(state.codex_thread_id)
+        .flatten())
+}
+
 pub(crate) fn prepare_context_safe_handoff(
     source_path: &Path,
     source_session_id: &str,
@@ -87,34 +117,49 @@ pub(crate) fn prepare_context_safe_handoff(
             .ok_or_else(|| HandoffError::UnsafePath(handoff_path.clone()))?,
     )?;
 
-    match fs::symlink_metadata(&handoff_path) {
+    let mut state = match fs::symlink_metadata(&handoff_path) {
         Ok(metadata) => {
             if metadata.file_type().is_symlink() || !metadata.is_file() {
                 return Err(HandoffError::UnsafePath(handoff_path));
             }
-            if latest_source_hash(&handoff_path)?.as_deref()
-                == Some(extracted.source_sha256.as_str())
-            {
-                return Ok(PreparedHandoff {
-                    path: handoff_path,
-                    appended: false,
-                });
-            }
+            read_handoff_state(&handoff_path)?
         }
-        Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => HandoffState::default(),
         Err(source) => {
             return Err(HandoffError::InspectHandoff {
                 path: handoff_path.clone(),
                 source,
             });
         }
-    }
+    };
 
-    append_checkpoint(&handoff_path, &extracted, cwd)?;
+    let appended = state.latest_source_sha256.as_deref() != Some(extracted.source_sha256.as_str());
+    if appended {
+        append_checkpoint(&handoff_path, &extracted, cwd)?;
+        state.latest_checkpoint_injected = false;
+    }
     Ok(PreparedHandoff {
         path: handoff_path,
-        appended: true,
+        appended,
+        source_sha256: extracted.source_sha256,
+        content: extracted.content,
+        codex_thread_id: state.codex_thread_id,
+        injected: state.latest_checkpoint_injected,
     })
+}
+
+pub(crate) fn record_pending_handoff_binding(
+    handoff: &PreparedHandoff,
+    codex_thread_id: &str,
+) -> Result<(), HandoffError> {
+    append_binding(handoff, codex_thread_id, "pending")
+}
+
+pub(crate) fn record_completed_handoff_binding(
+    handoff: &PreparedHandoff,
+    codex_thread_id: &str,
+) -> Result<(), HandoffError> {
+    append_binding(handoff, codex_thread_id, "completed")
 }
 
 struct ExtractedHandoff {
@@ -313,12 +358,12 @@ fn ensure_handoff_directory(path: &Path) -> Result<(), HandoffError> {
     set_private_directory_permissions(path)
 }
 
-fn latest_source_hash(path: &Path) -> Result<Option<String>, HandoffError> {
+fn read_handoff_state(path: &Path) -> Result<HandoffState, HandoffError> {
     let file = fs::File::open(path).map_err(|source| HandoffError::InspectHandoff {
         path: path.to_path_buf(),
         source,
     })?;
-    let mut latest = None;
+    let mut state = HandoffState::default();
     for line in BufReader::new(file).lines() {
         let line = line.map_err(|source| HandoffError::InspectHandoff {
             path: path.to_path_buf(),
@@ -327,11 +372,33 @@ fn latest_source_hash(path: &Path) -> Result<Option<String>, HandoffError> {
         let Ok(record) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        if let Some(hash) = record.get("rebinderSourceSha256").and_then(Value::as_str) {
-            latest = Some(hash.to_owned());
+        match record.get("type").and_then(Value::as_str) {
+            Some("user") => {
+                if let Some(hash) = record.get("rebinderSourceSha256").and_then(Value::as_str) {
+                    state.latest_source_sha256 = Some(hash.to_owned());
+                    state.latest_checkpoint_injected = false;
+                }
+            }
+            Some("rebinder-binding") => {
+                let Some(hash) = record.get("rebinderSourceSha256").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Some(thread_id) = record.get("codexThreadId").and_then(Value::as_str) else {
+                    continue;
+                };
+                if thread_id.trim().is_empty() {
+                    continue;
+                }
+                state.codex_thread_id = Some(thread_id.to_owned());
+                if state.latest_source_sha256.as_deref() == Some(hash) {
+                    state.latest_checkpoint_injected =
+                        record.get("status").and_then(Value::as_str) == Some("completed");
+                }
+            }
+            _ => {}
         }
     }
-    Ok(latest)
+    Ok(state)
 }
 
 fn append_checkpoint(
@@ -383,6 +450,44 @@ fn append_checkpoint(
     )?;
     file.flush().map_err(|source| HandoffError::WriteHandoff {
         path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn append_binding(
+    handoff: &PreparedHandoff,
+    codex_thread_id: &str,
+    status: &'static str,
+) -> Result<(), HandoffError> {
+    let metadata =
+        fs::symlink_metadata(&handoff.path).map_err(|source| HandoffError::InspectHandoff {
+            path: handoff.path.clone(),
+            source,
+        })?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(HandoffError::UnsafePath(handoff.path.clone()));
+    }
+
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(&handoff.path)
+        .map_err(|source| HandoffError::WriteHandoff {
+            path: handoff.path.clone(),
+            source,
+        })?;
+    set_private_file_permissions(&handoff.path)?;
+    write_json_line(
+        &mut file,
+        &json!({
+            "type": "rebinder-binding",
+            "rebinderSourceSha256": handoff.source_sha256,
+            "codexThreadId": codex_thread_id,
+            "status": status
+        }),
+        &handoff.path,
+    )?;
+    file.flush().map_err(|source| HandoffError::WriteHandoff {
+        path: handoff.path.clone(),
         source,
     })
 }
@@ -495,5 +600,50 @@ mod tests {
         let bounded = bounded_head_tail(&input, HANDOFF_MAX_CHARS);
         assert_eq!(bounded.chars().count(), HANDOFF_MAX_CHARS);
         assert!(bounded.contains("bounded by Rebinder"));
+    }
+
+    #[test]
+    fn adopts_an_unbound_checkpoint_and_tracks_native_thread_injection() {
+        let fixture = tempfile::tempdir().expect("handoff fixture");
+        let path = fixture.path().join("handoff.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"ai-title\",\"aiTitle\":\"Work\"}\n",
+                "{\"type\":\"user\",\"rebinderSourceSha256\":\"hash-1\",\"message\":{\"content\":\"continue here\"}}\n"
+            ),
+        )
+        .expect("write unbound handoff");
+        let state = read_handoff_state(&path).expect("read unbound checkpoint");
+        assert_eq!(state.latest_source_sha256.as_deref(), Some("hash-1"));
+        assert_eq!(state.codex_thread_id, None);
+        assert!(!state.latest_checkpoint_injected);
+
+        let handoff = PreparedHandoff {
+            path: path.clone(),
+            appended: false,
+            source_sha256: "hash-1".to_owned(),
+            content: "continue here".to_owned(),
+            codex_thread_id: None,
+            injected: false,
+        };
+        record_pending_handoff_binding(&handoff, "thread-1").expect("record pending binding");
+        record_completed_handoff_binding(&handoff, "thread-1").expect("record completed binding");
+        let completed = read_handoff_state(&path).expect("reload completed binding");
+        assert!(completed.latest_checkpoint_injected);
+        assert_eq!(completed.codex_thread_id.as_deref(), Some("thread-1"));
+
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("open changed handoff")
+            .write_all(
+                b"{\"type\":\"user\",\"rebinderSourceSha256\":\"hash-2\",\"message\":{\"content\":\"new state\"}}\n",
+            )
+            .expect("append changed checkpoint");
+        let changed = read_handoff_state(&path).expect("read changed checkpoint");
+        assert_eq!(changed.latest_source_sha256.as_deref(), Some("hash-2"));
+        assert!(!changed.latest_checkpoint_injected);
+        assert_eq!(changed.codex_thread_id.as_deref(), Some("thread-1"));
     }
 }

@@ -97,12 +97,12 @@ The serialized representation of the canonical session model used for exchange.
 
 A component that imports provider-specific data into the canonical model and exports canonical data for a provider.
 
-## Target-Native Import Bridge
+## Target-Native Transfer Bridge
 
 A transfer adapter that delegates provider-specific conversion and session
-store writes to a supported target-provider API. Rebinder's initial
-Claude-to-Codex path uses the Codex app-server external-agent migration API and
-never writes Codex session files directly.
+store writes to supported target-provider APIs. Rebinder's initial
+Claude-to-Codex path uses Codex app-server external-agent discovery, native full
+import, and native thread APIs; it never writes Codex session files directly.
 
 ## Recorded Workspace
 
@@ -127,9 +127,9 @@ A structured summary intended to help another agent or operator continue work.
 ## Context-Safe Handoff
 
 A bounded, derived source-session checkpoint containing a compact summary and
-recent visible messages. Rebinder uses it as an input to the target-native
-import bridge when a complete transcript would risk exhausting the target
-context window. The handoff is an implementation strategy inside a
+recent visible messages. Rebinder injects it through the target's native thread
+API when a complete transcript would risk exhausting the target context window.
+The handoff is an implementation strategy inside a
 cross-harness transfer, not a synonym for the transfer itself.
 
 ## Provenance

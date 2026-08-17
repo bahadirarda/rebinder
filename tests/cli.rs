@@ -171,7 +171,7 @@ exit 64
 #[cfg(unix)]
 #[test]
 fn context_safe_handoff_bounds_history_and_resumes_the_derived_thread() {
-    use std::{fs, os::unix::fs::PermissionsExt};
+    use std::{fs, io::Write, os::unix::fs::PermissionsExt};
 
     use sha2::{Digest, Sha256};
 
@@ -209,13 +209,11 @@ fn context_safe_handoff_bounds_history_and_resumes_the_derived_thread() {
         .join(format!("{source_key}.jsonl"));
     let executable = bin_directory.join("codex");
     let arguments_log = fixture.path().join("resume-arguments.txt");
-    let import_marker = fixture.path().join("import-complete");
-    let import_log = fixture.path().join("imports.txt");
+    let thread_log = fixture.path().join("thread-requests.txt");
+    let injection_log = fixture.path().join("injections.txt");
 
     let source_json = serde_json::to_string(source_path.to_str().expect("UTF-8 source path"))
         .expect("encode source path");
-    let handoff_json = serde_json::to_string(handoff_path.to_str().expect("UTF-8 handoff path"))
-        .expect("encode handoff path");
     let cwd_json = serde_json::to_string(workspace.to_str().expect("UTF-8 workspace path"))
         .expect("encode workspace path");
     let script = format!(
@@ -225,18 +223,22 @@ if [ "$1" = "app-server" ]; then
     case "$line" in
       *'"id":0'*) printf '%s\n' '{{"id":0,"result":{{}}}}' ;;
       *'"id":1'*) printf '%s\n' '{{"id":1,"result":{{"items":[{{"itemType":"SESSIONS","description":"Import Claude sessions","cwd":null,"details":{{"plugins":[],"skills":[],"sessions":[{{"path":{source_json},"cwd":{cwd_json},"title":"Large fixture session"}}],"mcpServers":[],"hooks":[],"subagents":[],"commands":[]}}}}]}}}}' ;;
-      *'"id":2'*)
-        if [ -f "$FAKE_CODEX_IMPORT_MARKER" ]; then
-          printf '%s\n' '{{"id":2,"result":{{"data":[{{"providerId":"claude-code","completedAtMs":42,"successes":[{{"itemType":"SESSIONS","cwd":{cwd_json},"source":{handoff_json},"target":"019c0000-0000-7000-8000-000000000002","title":"Large fixture session (Rebinder handoff)"}}]}}]}}}}'
-        else
-          printf '%s\n' '{{"id":2,"result":{{"data":[]}}}}'
-        fi
+      *'"id":2'*) printf '%s\n' '{{"id":2,"result":{{"data":[]}}}}' ;;
+      *'"method":"thread/start"'*)
+        printf '%s\n' start >> "$FAKE_CODEX_THREAD_LOG"
+        printf '%s\n' '{{"id":5,"result":{{"thread":{{"id":"019c0000-0000-7000-8000-000000000002"}}}}}}'
         ;;
-      *'"id":3'*)
-        : > "$FAKE_CODEX_IMPORT_MARKER"
-        printf '%s\n' imported >> "$FAKE_CODEX_IMPORT_LOG"
-        printf '%s\n' '{{"id":3,"result":{{"importId":"handoff-import"}}}}'
-        printf '%s\n' '{{"method":"externalAgentConfig/import/completed","params":{{"importId":"handoff-import","itemTypeResults":[{{"itemType":"SESSIONS","successes":[{{"itemType":"SESSIONS","cwd":{cwd_json},"source":{handoff_json},"target":"019c0000-0000-7000-8000-000000000002","title":"Large fixture session (Rebinder handoff)"}}],"failures":[]}}]}}}}'
+      *'"method":"thread/resume"'*)
+        printf '%s\n' resume >> "$FAKE_CODEX_THREAD_LOG"
+        printf '%s\n' '{{"id":5,"result":{{"thread":{{"id":"019c0000-0000-7000-8000-000000000002"}}}}}}'
+        ;;
+      *'"method":"thread/inject_items"'*)
+        printf '%s\n' inject >> "$FAKE_CODEX_THREAD_LOG"
+        printf '%s\n' "$line" >> "$FAKE_CODEX_INJECTION_LOG"
+        printf '%s\n' '{{"id":6,"result":{{}}}}'
+        ;;
+      *'"method":"externalAgentConfig/import"'*)
+        printf '%s\n' '{{"id":3,"error":{{"message":"handoffs must not use external import"}}}}'
         ;;
     esac
   done
@@ -271,8 +273,8 @@ exit 64
         .env("PATH", &bin_directory)
         .env("XDG_DATA_HOME", &data_directory)
         .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
-        .env("FAKE_CODEX_IMPORT_MARKER", &import_marker)
-        .env("FAKE_CODEX_IMPORT_LOG", &import_log)
+        .env("FAKE_CODEX_THREAD_LOG", &thread_log)
+        .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
         .output()
         .expect("run context-safe transfer");
 
@@ -298,7 +300,16 @@ exit 64
             & 0o777,
         0o600
     );
-    assert!(String::from_utf8_lossy(&output.stderr).contains("context-safe handoff"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("context-safe Codex thread"));
+    assert_eq!(
+        fs::read_to_string(&thread_log).expect("read thread request log"),
+        "start\ninject\n"
+    );
+    let injection = fs::read_to_string(&injection_log).expect("read injection log");
+    assert!(injection.contains("verified compact state"));
+    assert!(injection.contains("recent visible answer"));
+    assert!(!injection.contains("obsolete request"));
+    assert!(!injection.contains("private tool output"));
 
     let repeated = Command::new(env!("CARGO_BIN_EXE_rebinder"))
         .args([
@@ -315,8 +326,8 @@ exit 64
         .env("PATH", &bin_directory)
         .env("XDG_DATA_HOME", &data_directory)
         .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
-        .env("FAKE_CODEX_IMPORT_MARKER", &import_marker)
-        .env("FAKE_CODEX_IMPORT_LOG", &import_log)
+        .env("FAKE_CODEX_THREAD_LOG", &thread_log)
+        .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
         .output()
         .expect("repeat context-safe transfer");
     assert!(
@@ -326,14 +337,56 @@ exit 64
     );
     assert!(String::from_utf8_lossy(&repeated.stderr).contains("reusing"));
     assert_eq!(
-        fs::read_to_string(&import_log).expect("read import log"),
-        "imported\n"
+        fs::read_to_string(&thread_log).expect("read repeated thread log"),
+        "start\ninject\n"
     );
     assert_eq!(
         fs::read_to_string(&handoff_path)
             .expect("read repeated handoff")
             .lines()
             .count(),
-        2
+        4
+    );
+
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&source_path)
+        .expect("open changed source")
+        .write_all(b"{\"type\":\"user\",\"message\":{\"content\":\"new checkpoint detail\"}}\n")
+        .expect("append changed source");
+    let changed = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "transfer",
+            "--from",
+            "claude",
+            "--to",
+            "codex",
+            session_id,
+            "--strategy",
+            "handoff",
+        ])
+        .current_dir(&workspace)
+        .env("PATH", &bin_directory)
+        .env("XDG_DATA_HOME", &data_directory)
+        .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
+        .env("FAKE_CODEX_THREAD_LOG", &thread_log)
+        .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
+        .output()
+        .expect("transfer changed context-safe source");
+    assert!(
+        changed.status.success(),
+        "changed handoff failed: {}",
+        String::from_utf8_lossy(&changed.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&thread_log).expect("read changed thread log"),
+        "start\ninject\nresume\ninject\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&handoff_path)
+            .expect("read changed handoff")
+            .lines()
+            .count(),
+        7
     );
 }
