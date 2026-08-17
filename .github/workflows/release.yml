@@ -52,7 +52,12 @@ jobs:
           cargo fmt --all --check
           cargo clippy --all-targets --all-features --locked -- -D warnings
           cargo test --all-features --locked
-          cargo package --locked
+          package_files="$(cargo package --list --locked --allow-dirty)"
+          if grep -q '^node_modules/' <<<"$package_files"; then
+            echo "The crates.io package must not contain node_modules."
+            exit 1
+          fi
+          cargo package --locked --allow-dirty
 
   build:
     needs: validate

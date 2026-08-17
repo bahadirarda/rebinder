@@ -13,14 +13,14 @@ keywords = ["ai", "cli", "coding-agent", "session", "portability"]
 categories = ["command-line-utilities", "development-tools"]
 publish = ["crates-io"]
 include = [
-    "src/**",
-    "schemas/**",
-    "tests/**",
-    "examples/**",
-    "Cargo.toml",
-    "README.md",
-    "CHANGELOG.md",
-    "LICENSE",
+    "/src/**",
+    "/schemas/**",
+    "/tests/**",
+    "/examples/**",
+    "/Cargo.toml",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
 ]
 
 [lib]
