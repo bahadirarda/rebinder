@@ -2,7 +2,9 @@ use std::{ffi::OsString, path::PathBuf, process::ExitCode};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use rebinder::{
-    Harness, Inspection, ValidationReport, inspect_package, run_harness, validate_package,
+    ClaudeSession, Harness, Inspection, ValidationReport, discover_claude_sessions,
+    inspect_package, launch_prepared_codex_session, prepare_claude_to_codex, run_harness,
+    validate_package,
 };
 
 #[derive(Debug, Parser)]
@@ -24,6 +26,8 @@ enum Command {
     Claude(PassthroughArgs),
     /// Transfer a session to a different harness.
     Transfer(TransferArgs),
+    /// List sessions available to a provider adapter.
+    Sessions(SessionsArgs),
     /// Validate the structure and integrity of a session package.
     Validate {
         /// Path to an unpacked Rebinder session package.
@@ -66,6 +70,16 @@ struct TransferArgs {
     target_arguments: Vec<OsString>,
 }
 
+#[derive(Debug, Args)]
+struct SessionsArgs {
+    /// Harness whose sessions should be discovered.
+    #[arg(value_enum)]
+    harness: HarnessArgument,
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum HarnessArgument {
     Codex,
@@ -91,17 +105,19 @@ fn main() -> ExitCode {
                     "error: source and target harness are the same; use `rebinder {} resume ...` for a native resume",
                     Harness::from(arguments.to).executable()
                 );
-            } else {
-                let session = arguments.session_id.as_deref().unwrap_or("<auto-discover>");
-                let target_argument_count = arguments.target_arguments.len();
-                eprintln!(
-                    "error: cross-harness transfer is not implemented yet ({} session {session} -> {}, {target_argument_count} target argument(s))",
-                    Harness::from(arguments.from).executable(),
-                    Harness::from(arguments.to).executable(),
-                );
+                return ExitCode::from(2);
             }
+            if arguments.from == HarnessArgument::Claude && arguments.to == HarnessArgument::Codex {
+                return transfer_claude_to_codex(arguments);
+            }
+            eprintln!(
+                "error: {} to {} transfer is not implemented yet",
+                Harness::from(arguments.from).executable(),
+                Harness::from(arguments.to).executable(),
+            );
             ExitCode::from(2)
         }
+        Command::Sessions(arguments) => list_sessions(&arguments),
         Command::Validate { package, json } => {
             let report = validate_package(package);
             if json {
@@ -127,6 +143,91 @@ fn main() -> ExitCode {
             }
         },
     }
+}
+
+fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
+    let prepared = match prepare_claude_to_codex(arguments.session_id.as_deref()) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(2);
+        }
+    };
+
+    if prepared.imported {
+        eprintln!(
+            "rebinder: imported Claude Code session {} as Codex thread {}",
+            prepared.source_session_id, prepared.codex_thread_id
+        );
+    } else {
+        eprintln!(
+            "rebinder: Claude Code session {} is already bound to Codex thread {}",
+            prepared.source_session_id, prepared.codex_thread_id
+        );
+    }
+    eprintln!("rebinder: resuming in {}", prepared.cwd.display());
+
+    match launch_prepared_codex_session(&prepared, arguments.target_arguments) {
+        Ok(status) => status
+            .code()
+            .and_then(|code| u8::try_from(code).ok())
+            .map_or_else(|| ExitCode::from(1), ExitCode::from),
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::from(127)
+        }
+    }
+}
+
+fn list_sessions(arguments: &SessionsArgs) -> ExitCode {
+    if arguments.harness != HarnessArgument::Claude {
+        eprintln!("error: only Claude Code session discovery is implemented");
+        return ExitCode::from(2);
+    }
+    match discover_claude_sessions() {
+        Ok(sessions) => {
+            if arguments.json {
+                print_json(&sessions);
+            } else {
+                print_claude_sessions(&sessions);
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn print_claude_sessions(sessions: &[ClaudeSession]) {
+    if sessions.is_empty() {
+        println!("no importable or previously imported Claude Code sessions found");
+        return;
+    }
+    for session in sessions {
+        let state = match session.state {
+            rebinder::ClaudeSessionState::ReadyToImport => "ready",
+            rebinder::ClaudeSessionState::Imported => "imported",
+        };
+        println!(
+            "{}\t{}\t{}\t{}",
+            session.id,
+            state,
+            single_line(&session.title),
+            session.cwd.display()
+        );
+    }
+}
+
+fn single_line(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| match character {
+            '\n' | '\r' | '\t' => ' ',
+            other => other,
+        })
+        .collect()
 }
 
 fn launch_harness(harness: Harness, arguments: Vec<OsString>) -> ExitCode {

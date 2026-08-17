@@ -1,0 +1,928 @@
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, VecDeque},
+    ffi::{OsStr, OsString},
+    io::{BufRead, BufReader, Write},
+    path::{Path, PathBuf},
+    process::{Child, ChildStdin, Command, ExitStatus, Stdio},
+    sync::mpsc::{self, Receiver, RecvTimeoutError},
+    thread::{self, JoinHandle},
+    time::{Duration, Instant, UNIX_EPOCH},
+};
+
+use serde::Serialize;
+use serde_json::{Value, json};
+use thiserror::Error;
+
+const CLAUDE_CODE_SOURCE: &str = "claude-code";
+const RPC_TIMEOUT: Duration = Duration::from_secs(30);
+const IMPORT_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// A Claude Code session that Codex can import or has already imported.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeSession {
+    pub id: String,
+    pub title: String,
+    pub cwd: PathBuf,
+    #[serde(skip_serializing)]
+    pub source_path: PathBuf,
+    pub updated_at_unix_seconds: Option<u64>,
+    pub state: ClaudeSessionState,
+    pub codex_thread_id: Option<String>,
+}
+
+/// Whether a Claude session needs an import or can resume an existing Codex thread.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaudeSessionState {
+    ReadyToImport,
+    Imported,
+}
+
+/// Result of preparing a Claude Code session for continuation in Codex.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedCodexSession {
+    pub source_session_id: String,
+    pub source_title: String,
+    pub cwd: PathBuf,
+    pub codex_thread_id: String,
+    pub imported: bool,
+}
+
+/// Errors returned by Claude-to-Codex discovery and transfer.
+#[derive(Debug, Error)]
+pub enum TransferError {
+    #[error("cannot determine the current working directory: {0}")]
+    CurrentDirectory(#[source] std::io::Error),
+    #[error("cannot launch Codex app-server: {0}")]
+    AppServerLaunch(#[source] std::io::Error),
+    #[error("cannot communicate with Codex app-server: {0}")]
+    AppServerIo(#[source] std::io::Error),
+    #[error("Codex app-server returned invalid JSON: {0}")]
+    InvalidAppServerJson(#[source] serde_json::Error),
+    #[error("Codex app-server closed before replying")]
+    AppServerClosed,
+    #[error("Codex app-server timed out while waiting for {operation}")]
+    AppServerTimeout { operation: &'static str },
+    #[error("Codex app-server rejected {operation}: {message}")]
+    AppServerRejected {
+        operation: &'static str,
+        message: String,
+    },
+    #[error("Codex did not expose the Claude Code session importer; update Codex CLI and retry")]
+    ImportUnsupported,
+    #[error("no importable Claude Code sessions were found")]
+    NoSessions,
+    #[error(
+        "no Claude Code session was found for the current directory; pass a session ID from `rebinder sessions claude`"
+    )]
+    NoSessionForCurrentDirectory,
+    #[error("Claude Code session `{0}` was not found; run `rebinder sessions claude`")]
+    SessionNotFound(String),
+    #[error("Claude Code session ID `{0}` is ambiguous")]
+    AmbiguousSession(String),
+    #[error("Claude Code session `{session_id}` points to missing workspace `{cwd}`")]
+    MissingWorkspace { session_id: String, cwd: PathBuf },
+    #[error("Codex reported a session import failure: {0}")]
+    ImportFailed(String),
+    #[error("Codex completed the import without returning a target thread ID")]
+    MissingCodexThread,
+    #[error("cannot launch imported Codex thread: {0}")]
+    CodexLaunch(#[source] std::io::Error),
+}
+
+#[derive(Debug, Clone)]
+struct SessionRecord {
+    public: ClaudeSession,
+    migration_item: Option<Value>,
+    imported_at_ms: Option<u64>,
+}
+
+/// Discover Claude Code sessions through Codex's external-agent import API.
+pub fn discover_claude_sessions() -> Result<Vec<ClaudeSession>, TransferError> {
+    let current_dir = std::env::current_dir().map_err(TransferError::CurrentDirectory)?;
+    let mut app_server = CodexAppServer::launch(OsStr::new("codex"))?;
+    let inventory = load_inventory(&mut app_server, &current_dir)?;
+    Ok(inventory.into_iter().map(|record| record.public).collect())
+}
+
+/// Import a Claude Code session into Codex, or resolve its existing imported thread.
+pub fn prepare_claude_to_codex(
+    session_id: Option<&str>,
+) -> Result<PreparedCodexSession, TransferError> {
+    let current_dir = std::env::current_dir().map_err(TransferError::CurrentDirectory)?;
+    let mut app_server = CodexAppServer::launch(OsStr::new("codex"))?;
+    let inventory = load_inventory(&mut app_server, &current_dir)?;
+    let selected = select_session(inventory, session_id, &current_dir)?;
+
+    if !selected.public.cwd.is_dir() {
+        return Err(TransferError::MissingWorkspace {
+            session_id: selected.public.id,
+            cwd: selected.public.cwd,
+        });
+    }
+
+    let (codex_thread_id, imported) = if let Some(migration_item) = selected.migration_item {
+        let thread_id = app_server.import_session(&migration_item, &selected.public.source_path)?;
+        (thread_id, true)
+    } else {
+        let thread_id = selected
+            .public
+            .codex_thread_id
+            .clone()
+            .ok_or(TransferError::MissingCodexThread)?;
+        (thread_id, false)
+    };
+
+    Ok(PreparedCodexSession {
+        source_session_id: selected.public.id,
+        source_title: selected.public.title,
+        cwd: selected.public.cwd,
+        codex_thread_id,
+        imported,
+    })
+}
+
+/// Resume an imported thread with the native Codex CLI in its recorded workspace.
+pub fn launch_prepared_codex_session<I, S>(
+    prepared: &PreparedCodexSession,
+    target_arguments: I,
+) -> Result<ExitStatus, TransferError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut arguments = vec![
+        OsString::from("resume"),
+        OsString::from(&prepared.codex_thread_id),
+    ];
+    arguments.extend(
+        target_arguments
+            .into_iter()
+            .map(|argument| argument.as_ref().to_os_string()),
+    );
+
+    Command::new("codex")
+        .args(arguments)
+        .current_dir(&prepared.cwd)
+        .status()
+        .map_err(TransferError::CodexLaunch)
+}
+
+fn load_inventory(
+    app_server: &mut CodexAppServer,
+    current_dir: &Path,
+) -> Result<Vec<SessionRecord>, TransferError> {
+    let detected = app_server.detect(current_dir)?;
+    let histories = app_server.read_import_histories()?;
+    Ok(merge_inventory(&detected, &histories))
+}
+
+fn merge_inventory(detected: &Value, histories: &Value) -> Vec<SessionRecord> {
+    let mut records = imported_session_records(histories);
+
+    for detected_record in detected_session_records(detected) {
+        let key = path_key(&detected_record.public.source_path);
+        if let Some(previous) = records.get(&key) {
+            let mut merged = detected_record;
+            merged
+                .public
+                .codex_thread_id
+                .clone_from(&previous.public.codex_thread_id);
+            merged.imported_at_ms = previous.imported_at_ms;
+            records.insert(key, merged);
+        } else {
+            records.insert(key, detected_record);
+        }
+    }
+
+    let mut inventory = records.into_values().collect::<Vec<_>>();
+    inventory.sort_by_key(|record| Reverse(session_recency(record)));
+    inventory
+}
+
+fn detected_session_records(response: &Value) -> Vec<SessionRecord> {
+    let mut records = Vec::new();
+    let Some(items) = response
+        .get("items")
+        .and_then(Value::as_array)
+        .or_else(|| response.pointer("/result/items").and_then(Value::as_array))
+    else {
+        return records;
+    };
+
+    for item in items {
+        if item.get("itemType").and_then(Value::as_str) != Some("SESSIONS") {
+            continue;
+        }
+        let Some(sessions) = item.pointer("/details/sessions").and_then(Value::as_array) else {
+            continue;
+        };
+        for session in sessions {
+            let Some(source_path) = session
+                .get("path")
+                .and_then(Value::as_str)
+                .map(PathBuf::from)
+            else {
+                continue;
+            };
+            let Some(cwd) = session
+                .get("cwd")
+                .and_then(Value::as_str)
+                .map(PathBuf::from)
+            else {
+                continue;
+            };
+            let title = session
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("Untitled Claude session")
+                .to_owned();
+            let Some(id) = session_id_from_path(&source_path) else {
+                continue;
+            };
+
+            let mut migration_item = item.clone();
+            if let Some(session_list) = migration_item
+                .pointer_mut("/details/sessions")
+                .and_then(Value::as_array_mut)
+            {
+                *session_list = vec![session.clone()];
+            }
+            records.push(SessionRecord {
+                public: ClaudeSession {
+                    id,
+                    title,
+                    cwd,
+                    updated_at_unix_seconds: modified_unix_seconds(&source_path),
+                    source_path,
+                    state: ClaudeSessionState::ReadyToImport,
+                    codex_thread_id: None,
+                },
+                migration_item: Some(migration_item),
+                imported_at_ms: None,
+            });
+        }
+    }
+    records
+}
+
+fn imported_session_records(histories: &Value) -> BTreeMap<String, SessionRecord> {
+    let mut records = BTreeMap::new();
+    let Some(history_entries) = histories
+        .get("data")
+        .and_then(Value::as_array)
+        .or_else(|| histories.pointer("/result/data").and_then(Value::as_array))
+    else {
+        return records;
+    };
+
+    for history in history_entries {
+        if history.get("providerId").and_then(Value::as_str) != Some(CLAUDE_CODE_SOURCE) {
+            continue;
+        }
+        let imported_at_ms = history.get("completedAtMs").and_then(Value::as_u64);
+        let Some(successes) = history.get("successes").and_then(Value::as_array) else {
+            continue;
+        };
+        for success in successes {
+            if success.get("itemType").and_then(Value::as_str) != Some("SESSIONS") {
+                continue;
+            }
+            let Some(source_path) = success
+                .get("source")
+                .and_then(Value::as_str)
+                .map(PathBuf::from)
+            else {
+                continue;
+            };
+            let Some(codex_thread_id) = success
+                .get("target")
+                .and_then(Value::as_str)
+                .filter(|target| !target.is_empty())
+                .map(ToOwned::to_owned)
+            else {
+                continue;
+            };
+            let Some(cwd) = success
+                .get("cwd")
+                .and_then(Value::as_str)
+                .map(PathBuf::from)
+            else {
+                continue;
+            };
+            let Some(id) = session_id_from_path(&source_path) else {
+                continue;
+            };
+            let title = success
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("Imported Claude session")
+                .to_owned();
+            let key = path_key(&source_path);
+            let replace = records.get(&key).is_none_or(|previous: &SessionRecord| {
+                imported_at_ms.unwrap_or_default() >= previous.imported_at_ms.unwrap_or_default()
+            });
+            if replace {
+                records.insert(
+                    key,
+                    SessionRecord {
+                        public: ClaudeSession {
+                            id,
+                            title,
+                            cwd,
+                            updated_at_unix_seconds: modified_unix_seconds(&source_path),
+                            source_path,
+                            state: ClaudeSessionState::Imported,
+                            codex_thread_id: Some(codex_thread_id),
+                        },
+                        migration_item: None,
+                        imported_at_ms,
+                    },
+                );
+            }
+        }
+    }
+    records
+}
+
+fn select_session(
+    inventory: Vec<SessionRecord>,
+    session_id: Option<&str>,
+    current_dir: &Path,
+) -> Result<SessionRecord, TransferError> {
+    if inventory.is_empty() {
+        return Err(TransferError::NoSessions);
+    }
+
+    if let Some(session_id) = session_id {
+        let mut matches = inventory
+            .into_iter()
+            .filter(|record| record.public.id == session_id);
+        let selected = matches
+            .next()
+            .ok_or_else(|| TransferError::SessionNotFound(session_id.to_owned()))?;
+        if matches.next().is_some() {
+            return Err(TransferError::AmbiguousSession(session_id.to_owned()));
+        }
+        return Ok(selected);
+    }
+
+    inventory
+        .into_iter()
+        .filter(|record| paths_equivalent(&record.public.cwd, current_dir))
+        .max_by_key(session_recency)
+        .ok_or(TransferError::NoSessionForCurrentDirectory)
+}
+
+fn session_recency(record: &SessionRecord) -> u64 {
+    record
+        .public
+        .updated_at_unix_seconds
+        .map(|seconds| seconds.saturating_mul(1_000))
+        .or(record.imported_at_ms)
+        .unwrap_or_default()
+}
+
+fn paths_equivalent(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn session_id_from_path(path: &Path) -> Option<String> {
+    path.file_stem()
+        .and_then(OsStr::to_str)
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn modified_unix_seconds(path: &Path) -> Option<u64> {
+    path.metadata()
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
+}
+
+fn path_key(path: &Path) -> String {
+    path.canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
+}
+
+struct CodexAppServer {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    messages: Receiver<Result<Value, RpcReadError>>,
+    pending: VecDeque<Value>,
+    reader: Option<JoinHandle<()>>,
+}
+
+#[derive(Debug)]
+enum RpcReadError {
+    Io(std::io::Error),
+    Json(serde_json::Error),
+}
+
+impl CodexAppServer {
+    fn launch(executable: &OsStr) -> Result<Self, TransferError> {
+        let mut child = Command::new(executable)
+            .args(["app-server", "--listen", "stdio://"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(TransferError::AppServerLaunch)?;
+        let stdin = child.stdin.take().ok_or(TransferError::AppServerClosed)?;
+        let stdout = child.stdout.take().ok_or(TransferError::AppServerClosed)?;
+        let (sender, messages) = mpsc::channel();
+        let reader = thread::Builder::new()
+            .name("rebinder-codex-app-server".to_owned())
+            .spawn(move || {
+                for line in BufReader::new(stdout).lines() {
+                    let value = match line {
+                        Ok(line) => serde_json::from_str(&line).map_err(RpcReadError::Json),
+                        Err(error) => Err(RpcReadError::Io(error)),
+                    };
+                    if sender.send(value).is_err() {
+                        break;
+                    }
+                }
+            });
+        let reader = match reader {
+            Ok(reader) => reader,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(TransferError::AppServerLaunch(error));
+            }
+        };
+        let mut server = Self {
+            child,
+            stdin: Some(stdin),
+            messages,
+            pending: VecDeque::new(),
+            reader: Some(reader),
+        };
+        server.initialize()?;
+        Ok(server)
+    }
+
+    fn initialize(&mut self) -> Result<(), TransferError> {
+        self.request(
+            0,
+            "initialize",
+            json!({
+                "clientInfo": {
+                    "name": "rebinder",
+                    "title": "Rebinder",
+                    "version": env!("CARGO_PKG_VERSION")
+                },
+                "capabilities": { "experimentalApi": true }
+            }),
+            RPC_TIMEOUT,
+            "initialization",
+        )?;
+        self.send(&json!({ "method": "initialized", "params": {} }))
+    }
+
+    fn detect(&mut self, current_dir: &Path) -> Result<Value, TransferError> {
+        let result = self.request(
+            1,
+            "externalAgentConfig/detect",
+            json!({
+                "includeHome": true,
+                "cwds": [current_dir],
+                "migrationSource": CLAUDE_CODE_SOURCE
+            }),
+            RPC_TIMEOUT,
+            "Claude session discovery",
+        );
+        match result {
+            Err(TransferError::AppServerRejected { message, .. })
+                if message.contains("method") || message.contains("experimental") =>
+            {
+                Err(TransferError::ImportUnsupported)
+            }
+            other => other,
+        }
+    }
+
+    fn read_import_histories(&mut self) -> Result<Value, TransferError> {
+        self.request(
+            2,
+            "externalAgentConfig/import/readHistories",
+            Value::Null,
+            RPC_TIMEOUT,
+            "import history lookup",
+        )
+    }
+
+    fn import_session(
+        &mut self,
+        migration_item: &Value,
+        source_path: &Path,
+    ) -> Result<String, TransferError> {
+        let response = self.request(
+            3,
+            "externalAgentConfig/import",
+            json!({
+                "migrationItems": [migration_item],
+                "source": CLAUDE_CODE_SOURCE
+            }),
+            RPC_TIMEOUT,
+            "session import",
+        )?;
+        let import_id = response
+            .get("importId")
+            .and_then(Value::as_str)
+            .ok_or(TransferError::MissingCodexThread)?
+            .to_owned();
+        let completed = self.receive_matching(
+            |message| {
+                message.get("method").and_then(Value::as_str)
+                    == Some("externalAgentConfig/import/completed")
+                    && message.pointer("/params/importId").and_then(Value::as_str)
+                        == Some(import_id.as_str())
+            },
+            IMPORT_TIMEOUT,
+            "session import completion",
+        )?;
+
+        if let Some(thread_id) = imported_thread_from_completion(&completed, source_path) {
+            return Ok(thread_id);
+        }
+        if let Some(message) = import_failure_from_completion(&completed, source_path) {
+            return Err(TransferError::ImportFailed(message));
+        }
+
+        let histories = self.request(
+            4,
+            "externalAgentConfig/import/readHistories",
+            Value::Null,
+            RPC_TIMEOUT,
+            "import result lookup",
+        )?;
+        imported_thread_from_histories(&histories, source_path)
+            .ok_or(TransferError::MissingCodexThread)
+    }
+
+    fn request(
+        &mut self,
+        id: u64,
+        method: &'static str,
+        params: Value,
+        timeout: Duration,
+        operation: &'static str,
+    ) -> Result<Value, TransferError> {
+        let mut message = json!({ "method": method, "id": id });
+        if !params.is_null() {
+            message["params"] = params;
+        }
+        self.send(&message)?;
+        let response = self.receive_matching(
+            |candidate| candidate.get("id").and_then(Value::as_u64) == Some(id),
+            timeout,
+            operation,
+        )?;
+        if let Some(error) = response.get("error") {
+            let message = error
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown app-server error")
+                .to_owned();
+            return Err(TransferError::AppServerRejected { operation, message });
+        }
+        Ok(response.get("result").cloned().unwrap_or(Value::Null))
+    }
+
+    fn send(&mut self, message: &Value) -> Result<(), TransferError> {
+        let stdin = self.stdin.as_mut().ok_or(TransferError::AppServerClosed)?;
+        serde_json::to_writer(&mut *stdin, &message).map_err(|error| {
+            TransferError::AppServerIo(std::io::Error::other(error.to_string()))
+        })?;
+        stdin
+            .write_all(b"\n")
+            .and_then(|()| stdin.flush())
+            .map_err(TransferError::AppServerIo)
+    }
+
+    fn receive_matching(
+        &mut self,
+        predicate: impl Fn(&Value) -> bool,
+        timeout: Duration,
+        operation: &'static str,
+    ) -> Result<Value, TransferError> {
+        if let Some(position) = self.pending.iter().position(&predicate) {
+            return Ok(self
+                .pending
+                .remove(position)
+                .expect("pending position must exist"));
+        }
+
+        let deadline = Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(TransferError::AppServerTimeout { operation });
+            }
+            match self.messages.recv_timeout(remaining) {
+                Ok(Ok(message)) if predicate(&message) => return Ok(message),
+                Ok(Ok(message)) => self.pending.push_back(message),
+                Ok(Err(RpcReadError::Io(error))) => {
+                    return Err(TransferError::AppServerIo(error));
+                }
+                Ok(Err(RpcReadError::Json(error))) => {
+                    return Err(TransferError::InvalidAppServerJson(error));
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err(TransferError::AppServerTimeout { operation });
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(TransferError::AppServerClosed);
+                }
+            }
+        }
+    }
+}
+
+impl Drop for CodexAppServer {
+    fn drop(&mut self) {
+        self.stdin.take();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+    }
+}
+
+fn imported_thread_from_completion(completed: &Value, source_path: &Path) -> Option<String> {
+    completed
+        .pointer("/params/itemTypeResults")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter(|result| result.get("itemType").and_then(Value::as_str) == Some("SESSIONS"))
+        .filter_map(|result| result.get("successes").and_then(Value::as_array))
+        .flatten()
+        .find(|success| success_source_matches(success, source_path))?
+        .get("target")?
+        .as_str()
+        .filter(|target| !target.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn import_failure_from_completion(completed: &Value, source_path: &Path) -> Option<String> {
+    completed
+        .pointer("/params/itemTypeResults")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter(|result| result.get("itemType").and_then(Value::as_str) == Some("SESSIONS"))
+        .filter_map(|result| result.get("failures").and_then(Value::as_array))
+        .flatten()
+        .find(|failure| success_source_matches(failure, source_path))?
+        .get("message")?
+        .as_str()
+        .map(ToOwned::to_owned)
+}
+
+fn imported_thread_from_histories(histories: &Value, source_path: &Path) -> Option<String> {
+    histories
+        .get("data")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter_map(|history| history.get("successes").and_then(Value::as_array))
+        .flatten()
+        .filter(|success| success.get("itemType").and_then(Value::as_str) == Some("SESSIONS"))
+        .find(|success| success_source_matches(success, source_path))?
+        .get("target")?
+        .as_str()
+        .filter(|target| !target.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn success_source_matches(success: &Value, source_path: &Path) -> bool {
+    success
+        .get("source")
+        .and_then(Value::as_str)
+        .is_some_and(|source| paths_equivalent(Path::new(source), source_path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn detected(source: &Path, cwd: &Path, title: &str) -> Value {
+        json!({
+            "items": [{
+                "itemType": "SESSIONS",
+                "description": "Import Claude sessions",
+                "cwd": null,
+                "details": {
+                    "plugins": [],
+                    "skills": [],
+                    "sessions": [{ "path": source, "cwd": cwd, "title": title }],
+                    "mcpServers": [],
+                    "hooks": [],
+                    "subagents": [],
+                    "commands": []
+                }
+            }]
+        })
+    }
+
+    #[test]
+    fn detection_creates_a_single_session_migration_item() {
+        let response = detected(
+            Path::new("/tmp/1234.jsonl"),
+            Path::new("/tmp/project"),
+            "Fix parser",
+        );
+        let records = detected_session_records(&response);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].public.id, "1234");
+        assert_eq!(records[0].public.title, "Fix parser");
+        assert_eq!(records[0].public.state, ClaudeSessionState::ReadyToImport);
+        assert_eq!(
+            records[0]
+                .migration_item
+                .as_ref()
+                .and_then(|item| item.pointer("/details/sessions"))
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn history_maps_a_claude_session_to_its_codex_thread() {
+        let histories = json!({
+            "data": [{
+                "providerId": "claude-code",
+                "completedAtMs": 42,
+                "successes": [{
+                    "itemType": "SESSIONS",
+                    "cwd": "/tmp/project",
+                    "source": "/tmp/1234.jsonl",
+                    "target": "019c-thread",
+                    "title": "Fix parser"
+                }]
+            }]
+        });
+        let records = imported_session_records(&histories);
+        let record = records.values().next().expect("imported record");
+        assert_eq!(record.public.id, "1234");
+        assert_eq!(
+            record.public.codex_thread_id.as_deref(),
+            Some("019c-thread")
+        );
+        assert_eq!(record.public.state, ClaudeSessionState::Imported);
+    }
+
+    #[test]
+    fn history_ignores_sessions_without_an_explicit_claude_provider() {
+        let histories = json!({
+            "data": [{
+                "completedAtMs": 42,
+                "successes": [{
+                    "itemType": "SESSIONS",
+                    "cwd": "/tmp/project",
+                    "source": "/tmp/1234.jsonl",
+                    "target": "019c-thread",
+                    "title": "Fix parser"
+                }]
+            }]
+        });
+
+        assert!(imported_session_records(&histories).is_empty());
+    }
+
+    #[test]
+    fn unchanged_imported_session_resumes_without_another_migration() {
+        let histories = json!({
+            "data": [{
+                "providerId": "claude-code",
+                "completedAtMs": 42,
+                "successes": [{
+                    "itemType": "SESSIONS",
+                    "cwd": "/tmp/project",
+                    "source": "/tmp/1234.jsonl",
+                    "target": "019c-thread",
+                    "title": "Fix parser"
+                }]
+            }]
+        });
+        let inventory = merge_inventory(&json!({ "items": [] }), &histories);
+        assert_eq!(inventory.len(), 1);
+        assert!(inventory[0].migration_item.is_none());
+        assert_eq!(
+            inventory[0].public.codex_thread_id.as_deref(),
+            Some("019c-thread")
+        );
+    }
+
+    #[test]
+    fn changed_imported_session_keeps_its_binding_and_requests_a_checkpoint() {
+        let source = Path::new("/tmp/1234.jsonl");
+        let cwd = Path::new("/tmp/project");
+        let histories = json!({
+            "data": [{
+                "providerId": "claude-code",
+                "completedAtMs": 42,
+                "successes": [{
+                    "itemType": "SESSIONS",
+                    "cwd": cwd,
+                    "source": source,
+                    "target": "019c-thread",
+                    "title": "Fix parser"
+                }]
+            }]
+        });
+        let inventory = merge_inventory(&detected(source, cwd, "Fix parser"), &histories);
+        assert_eq!(inventory.len(), 1);
+        assert!(inventory[0].migration_item.is_some());
+        assert_eq!(
+            inventory[0].public.codex_thread_id.as_deref(),
+            Some("019c-thread")
+        );
+        assert_eq!(inventory[0].public.state, ClaudeSessionState::ReadyToImport);
+    }
+
+    #[test]
+    fn explicit_session_selection_is_exact() {
+        let cwd = PathBuf::from("/tmp/project");
+        let records = vec!["first", "second"]
+            .into_iter()
+            .map(|id| SessionRecord {
+                public: ClaudeSession {
+                    id: id.to_owned(),
+                    title: id.to_owned(),
+                    cwd: cwd.clone(),
+                    source_path: PathBuf::from(format!("/tmp/{id}.jsonl")),
+                    updated_at_unix_seconds: None,
+                    state: ClaudeSessionState::ReadyToImport,
+                    codex_thread_id: None,
+                },
+                migration_item: Some(json!({})),
+                imported_at_ms: None,
+            })
+            .collect();
+        let selected = select_session(records, Some("second"), &cwd).expect("select session");
+        assert_eq!(selected.public.id, "second");
+    }
+
+    #[test]
+    fn implicit_selection_stays_inside_the_current_workspace() {
+        let current = tempfile::tempdir().expect("current workspace");
+        let other = tempfile::tempdir().expect("other workspace");
+        let record = |id: &str, cwd: &Path, updated| SessionRecord {
+            public: ClaudeSession {
+                id: id.to_owned(),
+                title: id.to_owned(),
+                cwd: cwd.to_path_buf(),
+                source_path: cwd.join(format!("{id}.jsonl")),
+                updated_at_unix_seconds: Some(updated),
+                state: ClaudeSessionState::ReadyToImport,
+                codex_thread_id: None,
+            },
+            migration_item: Some(json!({})),
+            imported_at_ms: None,
+        };
+        let records = vec![
+            record("current-old", current.path(), 10),
+            record("other-new", other.path(), 30),
+            record("current-new", current.path(), 20),
+        ];
+        let selected = select_session(records, None, current.path()).expect("select session");
+        assert_eq!(selected.public.id, "current-new");
+    }
+
+    #[test]
+    fn completion_returns_the_imported_thread_id() {
+        let completed = json!({
+            "method": "externalAgentConfig/import/completed",
+            "params": {
+                "importId": "import-1",
+                "itemTypeResults": [{
+                    "itemType": "SESSIONS",
+                    "successes": [{
+                        "source": "/tmp/1234.jsonl",
+                        "target": "019c-thread"
+                    }],
+                    "failures": []
+                }]
+            }
+        });
+        assert_eq!(
+            imported_thread_from_completion(&completed, Path::new("/tmp/1234.jsonl")),
+            Some("019c-thread".to_owned())
+        );
+    }
+}

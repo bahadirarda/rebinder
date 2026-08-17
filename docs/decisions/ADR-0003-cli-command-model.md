@@ -36,6 +36,16 @@ returns the provider process exit status. The cross-harness form owns all
 arguments before `--`; arguments after `--` are forwarded to the target harness
 after a successful migration.
 
+`rebinder sessions <harness>` exposes provider session IDs separately from
+native harness commands. For the initial operational direction:
+
+```text
+rebinder sessions claude
+rebinder transfer [session-id] --from claude --to codex -- [Codex arguments]
+```
+
+When `session-id` is omitted, discovery is scoped to the current workspace.
+
 ## Consequences
 
 Positive:
@@ -43,6 +53,7 @@ Positive:
 - Native provider CLI behavior remains familiar and collision-free.
 - Migration direction is explicit and symmetrical.
 - New harness namespaces can be added without changing the resume grammar.
+- Users can discover source IDs without inspecting provider storage manually.
 
 Trade-offs:
 

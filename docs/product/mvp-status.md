@@ -1,11 +1,11 @@
 ---
 type: product-status
-title: Foundation MVP Status
+title: Transfer MVP Status
 status: draft
 version: 0.1.0
 ---
 
-# Foundation MVP Status
+# Transfer MVP Status
 
 ## Purpose
 
@@ -21,33 +21,43 @@ README examples and release notes MUST preserve this distinction.
 - SHA-256 file inventory verification
 - Relative-path confinement and symlink rejection
 - Conversation graph and provenance invariants
+- Claude Code session discovery through the Codex external-agent import API
+- Exact Claude session selection and current-workspace latest-session selection
+- Claude-to-Codex native session import and Codex thread resolution
+- Repeat import checkpointing through Codex's session import ledger
+- Native Codex resume in the Claude session's recorded workspace or worktree
+- Fail-closed handling for missing workspaces and unsupported directions
+- Human and JSON session inventory output
 - Calendar release identity `0.YYYYMMDD.REVISION`
 - Changesets release-intent ledger and automated version pull requests
 - Checksum-verifying Unix and Windows installers
 - Five-target native GitHub Release workflow
 - Release metadata, checksum manifest, and GitHub artifact attestations
 
-## Contract defined, execution pending
+## Operational transfer path
 
-`rebinder transfer --from <source> --to <target> [session] -- [target args]`
-is parsed and documented but returns exit code `2`. This is intentional. It MUST
-remain fail-closed until both provider adapters can:
+`rebinder transfer [session] --from claude --to codex -- [target args]` is
+operational for local Claude Code sessions supported by the installed Codex
+importer. Rebinder selects only the `SESSIONS` migration item, waits for the
+native Codex thread ID, verifies that the recorded workspace exists, and runs
+`codex resume` in that directory.
 
-1. discover and export source sessions;
-2. apply redaction policy;
-3. emit structurally valid canonical packages;
-4. report target capability loss;
-5. create a target continuation artifact; and
-6. prove an end-to-end continuation fixture in both directions.
+Omitting the session ID is allowed only when discovery finds a session whose
+recorded working directory matches the current directory. Explicit selection
+uses the Claude provider session ID shown by `rebinder sessions claude`.
+
+Rebinder never edits Claude transcript files or writes directly into Codex's
+private session store. Codex owns conversion, import-ledger updates, and native
+thread creation.
 
 ## Pending MVP capabilities
 
 - Codex session discovery and canonical export
-- Claude Code session discovery and canonical export
+- Claude Code canonical-package export independent of Codex
 - Provider capability declarations and compatibility reports
-- Target continuation artifact generation
+- Provider-neutral target continuation artifact generation
 - End-to-end Codex-to-Claude transfer
-- End-to-end Claude-to-Codex transfer
+- Missing-worktree reconstruction
 
 No pending capability may be described as available in installation or release
 documentation before its acceptance tests pass.

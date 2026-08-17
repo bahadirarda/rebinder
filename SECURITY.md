@@ -16,6 +16,12 @@ affected release, platform, reproduction steps, impact, and any proposed
 mitigation. Do not attach real session packages, tokens, or private transcripts;
 use a minimized synthetic fixture.
 
+Claude-to-Codex transfer sends the selected local session through the installed
+Codex app-server's external-agent importer. Rebinder does not print transcript
+content, import provider configuration, or write provider session files
+directly. Treat session IDs, titles, working-directory paths, and import logs as
+potentially sensitive metadata.
+
 You should receive an acknowledgement within seven days. Publication and fix
 timing depend on severity and whether a coordinated provider disclosure is
 required.

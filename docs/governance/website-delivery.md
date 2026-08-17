@@ -15,12 +15,13 @@ dependency-free semantic HTML, CSS, and progressive JavaScript. Core product
 content, navigation, install commands, and project links remain available
 without client-side rendering.
 
-The website presents implemented foundation behavior and planned transfer
-behavior as separate states. It may describe native Codex and Claude command
-passthrough, session-package validation and inspection, the interchange format,
-and verified native releases as available. It MUST identify cross-harness
-`transfer` as reserved until provider export, redaction, compatibility
-reporting, and target artifact generation are implemented.
+The website presents the operational Claude-to-Codex bridge separately from
+planned provider-neutral transfer behavior. It may describe Claude session
+discovery, native Codex session import, recorded-workspace resume, native
+command passthrough, session-package validation and inspection, the interchange
+format, and verified native releases as available. It MUST identify
+Codex-to-Claude transfer, missing-worktree reconstruction, and general
+compatibility reporting as pending.
 
 ## Visual and accessibility contract
 
@@ -43,7 +44,7 @@ root sitemap, which contains only the canonical indexable product URL.
 
 The root `llms.txt` gives coding agents a concise product summary and curated
 links to raw product, architecture, format, distribution, and source documents.
-It explicitly repeats the current transfer availability boundary and is a
+It explicitly repeats the one-way transfer availability boundary and is a
 discovery aid rather than an access-control mechanism.
 
 ## Installer boundary
