@@ -20,3 +20,6 @@
   security, and GitHub issue-management surfaces.
 - Added the one-time GitHub trust-control checklist and maintainer release
   runbook for the first immutable calendar release.
+- Added the dependency-free product website, truthful foundation-MVP capability
+  presentation, search and agent discovery metadata, structural validation, and
+  protected GitHub Pages delivery.

@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://bahadirarda.github.io/rebinder/">Website</a> ·
   <a href="https://github.com/bahadirarda/rebinder/releases">Releases</a> ·
   <a href="index.md">Documentation</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
@@ -38,6 +39,10 @@
 
 Published releases provide checksum-verified native binaries for Linux, macOS,
 and Windows.
+
+Visit the [Rebinder website](https://bahadirarda.github.io/rebinder/) for the
+product overview, platform installers, current capability boundary, and project
+documentation.
 
 Linux or macOS:
 

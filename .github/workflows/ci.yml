@@ -57,6 +57,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check:release
       - run: bun run check:docs
+      - run: bun run check:site
       - name: Validate GitHub Actions workflows
         shell: bash
         run: |
