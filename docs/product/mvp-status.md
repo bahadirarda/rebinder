@@ -30,6 +30,9 @@ README examples and release notes MUST preserve this distinction.
 - Rebinder-owned Codex opening in the Claude session's recorded workspace or worktree
 - Fail-closed handling for missing workspaces and unsupported directions
 - Human and JSON session inventory output
+- Codex and Claude target capability declarations
+- Package-specific human and JSON compatibility reports
+- Bounded provider-neutral Markdown continuation artifacts
 - Calendar release identity `0.YYYYMMDD.REVISION`
 - Changesets release-intent ledger and automated version pull requests
 - Checksum-verifying Unix and Windows installers
@@ -75,12 +78,26 @@ binding in its own platform data directory; Codex owns native thread creation,
 history injection, activation, compaction, full-import conversion, and session
 persistence.
 
+## Operational package portability path
+
+`rebinder capabilities <harness>` publishes the target adapter's preserved,
+summarized, and omitted continuation capabilities. `rebinder compatibility
+<package> --to <harness>` validates the package and reports only the
+information-loss findings activated by its contents. Invalid structure is
+blocking; declared information loss remains explicit but does not prevent
+artifact preparation.
+
+`rebinder artifact <package> --to <harness> --output <path>` creates a bounded
+Markdown continuation artifact containing handoff guidance, task state,
+workspace and repository facts, provenance, and recent visible conversation.
+Tool-result payloads, attachments, environment values, and remote URLs are
+omitted. Existing output paths are never overwritten and Unix output is private
+to the current user.
+
 ## Pending MVP capabilities
 
 - Codex session discovery and canonical export
 - Claude Code canonical-package export independent of Codex
-- Provider capability declarations and compatibility reports
-- Provider-neutral target continuation artifact generation
 - End-to-end Codex-to-Claude transfer
 - Missing-worktree reconstruction
 

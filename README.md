@@ -178,6 +178,28 @@ rebinder inspect ./session-package
 rebinder inspect ./session-package --json
 ```
 
+Review the target adapter contract and calculate the information-loss boundary
+for the fields actually used by a package:
+
+```bash
+rebinder capabilities claude
+rebinder compatibility ./session-package --to claude
+rebinder compatibility ./session-package --to codex --json
+```
+
+Create a bounded provider-neutral continuation artifact after validation and
+compatibility assessment:
+
+```bash
+rebinder artifact ./session-package --to claude --output ./continuation.md
+```
+
+Artifacts preserve the handoff, task state, repository facts, recorded
+workspace, provenance, and recent visible conversation text. Tool outputs,
+attachments, environment values, and remote URLs are excluded; every active
+loss is reported before generation. Output files are created with private
+permissions on Unix and are never overwritten.
+
 Codex-to-Claude transfer remains unavailable and exits with code `2` rather
 than pretending an incompatible target artifact was created.
 
@@ -196,7 +218,8 @@ than pretending an incompatible target artifact was created.
 | Context guard | Injects bounded compact-summary and recent-message items with their user/assistant roles preserved, then creates a visible continuation brief for source transcripts larger than 512 KiB |
 | Repeat transfer | Reuses the strategy-specific thread, ignores metadata-only source churn, and performs compaction and visible activation once per meaningful handoff revision |
 | Worktrees | Reuses an existing recorded worktree; missing workspace paths fail closed |
-| Compatibility | General provider capability and information-loss reports remain pending |
+| Compatibility | Declares Codex and Claude continuation capabilities and reports package-specific preserved, summarized, omitted, or blocking state in human/JSON form |
+| Continuation artifact | Produces bounded Markdown continuation state from a validated package without tool output, environment values, attachment payloads, or remote URLs |
 | Codex to Claude | Not implemented; exits closed with code `2` |
 
 The initial package format is documented in the
@@ -256,6 +279,12 @@ rejects symlinked handoff targets. It fails
 closed on invalid structure, unsafe paths, missing workspaces, integrity
 failures, and provenance mismatches. Report vulnerabilities through the private
 process in [SECURITY.md](SECURITY.md), not a public issue.
+
+Provider-neutral continuation artifacts are also sensitive. Rebinder validates
+their package first, excludes tool-result payloads and environment values,
+creates them without overwriting an existing path, and uses mode `0600` on
+Unix. Review an artifact before sharing it because visible conversation and
+handoff text may still contain private project information.
 
 ## License
 

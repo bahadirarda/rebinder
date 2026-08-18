@@ -27,6 +27,115 @@ fn validate_command_supports_json_output() {
     assert_eq!(value["schemaVersion"], "0.1.0");
 }
 
+#[test]
+fn capabilities_and_compatibility_are_machine_readable() {
+    let capabilities = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args(["capabilities", "claude", "--json"])
+        .output()
+        .expect("run capabilities command");
+    assert!(capabilities.status.success());
+    let capabilities: serde_json::Value =
+        serde_json::from_slice(&capabilities.stdout).expect("decode capabilities");
+    assert_eq!(capabilities["provider"], "claude");
+    assert_eq!(
+        capabilities["artifactFormat"],
+        "text/markdown; profile=rebinder.continuation.v1"
+    );
+    assert!(
+        capabilities["capabilities"]
+            .as_array()
+            .is_some_and(|items| {
+                items.iter().any(|item| {
+                    item["capability"] == "conversation.tool_results"
+                        && item["support"] == "omitted"
+                })
+            })
+    );
+
+    let compatibility = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "compatibility",
+            "examples/minimal-session",
+            "--to",
+            "claude",
+            "--json",
+        ])
+        .output()
+        .expect("run compatibility command");
+    assert!(compatibility.status.success());
+    let compatibility: serde_json::Value =
+        serde_json::from_slice(&compatibility.stdout).expect("decode compatibility");
+    assert_eq!(compatibility["canContinue"], true);
+    assert_eq!(compatibility["level"], "compatible_with_loss");
+    assert_eq!(compatibility["sourceProvider"], "codex");
+    assert_eq!(compatibility["target"]["provider"], "claude");
+
+    let invalid = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "compatibility",
+            "missing-session-package",
+            "--to",
+            "claude",
+            "--json",
+        ])
+        .output()
+        .expect("run invalid compatibility command");
+    assert_eq!(invalid.status.code(), Some(1));
+    let invalid: serde_json::Value =
+        serde_json::from_slice(&invalid.stdout).expect("decode invalid compatibility");
+    assert_eq!(invalid["canContinue"], false);
+    assert_eq!(invalid["level"], "incompatible");
+    assert!(invalid["findings"].as_array().is_some_and(|findings| {
+        findings
+            .iter()
+            .any(|finding| finding["severity"] == "blocking")
+    }));
+}
+
+#[test]
+fn artifact_command_writes_once_without_tool_result_payloads() {
+    let fixture = tempfile::tempdir().expect("artifact fixture");
+    let output = fixture.path().join("continuation.md");
+    let first = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "artifact",
+            "examples/minimal-session",
+            "--to",
+            "claude",
+            "--output",
+            output.to_str().expect("UTF-8 output path"),
+            "--json",
+        ])
+        .output()
+        .expect("run artifact command");
+    assert!(
+        first.status.success(),
+        "artifact failed: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let metadata: serde_json::Value =
+        serde_json::from_slice(&first.stdout).expect("decode artifact metadata");
+    assert_eq!(metadata["targetProvider"], "claude");
+    assert_eq!(metadata["compatibility"]["level"], "compatible_with_loss");
+    let contents = std::fs::read_to_string(&output).expect("read artifact");
+    assert!(contents.contains("Build the provider-neutral validation core."));
+    assert!(!contents.contains("Initial Architecture"));
+
+    let repeated = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "artifact",
+            "examples/minimal-session",
+            "--to",
+            "claude",
+            "--output",
+            output.to_str().expect("UTF-8 output path"),
+        ])
+        .output()
+        .expect("repeat artifact command");
+    assert_eq!(repeated.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&repeated.stderr).contains("already exists"));
+}
+
 #[cfg(unix)]
 #[test]
 fn codex_command_forwards_arguments_unchanged() {

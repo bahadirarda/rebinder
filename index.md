@@ -26,6 +26,7 @@ Rebinder rebinds an agent session's portable state to a different coding agent h
 - [ADR-0003: CLI command model](docs/decisions/ADR-0003-cli-command-model.md)
 - [ADR-0004: Calendar releases and native distribution](docs/decisions/ADR-0004-calendar-releases.md)
 - [ADR-0005: Codex native import bridge](docs/decisions/ADR-0005-codex-native-import-bridge.md)
+- [ADR-0006: Capability-aware continuation artifacts](docs/decisions/ADR-0006-capability-aware-continuation-artifacts.md)
 
 ## Status
 
@@ -36,5 +37,7 @@ bounded, role-preserving context-safe handoff by default, and meaningful repeat
 updates are compacted natively before a visible, history-grounded continuation
 brief is created. Interchange schema `0.1.0`, Rust package validation and
 inspection, verified native distribution, command passthrough, and the product
-site are also implemented. Codex-to-Claude and provider-neutral compatibility
-reporting remain pending.
+site are also implemented. Target capability declarations, package-specific
+compatibility reports, and bounded provider-neutral continuation artifacts are
+available. Canonical provider export and Codex-to-Claude native transfer remain
+pending.

@@ -150,3 +150,17 @@ Information describing the entities, activities, agents, tools, and transformati
 ## Compatibility Report
 
 A report describing structural validity, supported capabilities, unsupported fields, and declared information loss for a target adapter.
+
+## Provider Capability Declaration
+
+A machine-readable target-adapter contract classifying each canonical state
+category as preserved, summarized, or omitted by a specific continuation
+artifact format.
+
+## Continuation Artifact
+
+A bounded target-facing representation produced from a validated canonical
+package. The initial provider-neutral artifact is Markdown containing handoff,
+task, workspace, repository, provenance, and recent visible conversation state.
+It is not a native provider session and does not claim exact behavioral
+equivalence.

@@ -234,7 +234,7 @@
             <li data-reveal>
               <span>03</span>
               <div><h3>Report compatibility</h3><p>Expose what transfers, what degrades, and what cannot cross the harness boundary.</p></div>
-              <small>planned</small>
+              <small>live</small>
             </li>
             <li data-reveal>
               <span>04</span>
@@ -302,6 +302,10 @@
               <p class="ok">✓ session package is valid</p>
               <p><span>$</span> rebinder inspect ./session-package --json</p>
               <p class="json">{ "schemaVersion": "0.1.0", "integrity": "verified", … }</p>
+              <p><span>$</span> rebinder compatibility ./session-package --to claude</p>
+              <p class="ok">✓ compatible_with_loss — every omission declared</p>
+              <p><span>$</span> rebinder artifact ./session-package --to claude --output continuation.md</p>
+              <p class="ok">✓ bounded continuation artifact created privately</p>
             </div>
           </div>
         </div>
