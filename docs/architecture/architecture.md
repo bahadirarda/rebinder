@@ -35,6 +35,21 @@ Validated Interchange Package
     -> Bounded Markdown continuation artifact
 ```
 
+Both source adapters now enter the canonical half of the pipeline:
+
+```text
+Claude Code local project JSONL -> Claude source adapter --+
+                                                        +-> canonical model
+Codex app-server thread/list + thread/read -------------+   -> package encoder
+                                                            -> self-validation
+```
+
+The Claude adapter reads regular JSONL session files under the configured
+project store. The Codex adapter uses the stable, non-resuming app-server read
+surface and never parses rollout files. Both map visible messages, current
+intent, workspace facts, readable Git metadata, a bounded handoff, and
+provenance into the same schema `0.1.0` package.
+
 The operational Claude-to-Codex MVP uses a target-native bridge exposed by
 Codex instead of writing Codex's private session representation:
 
@@ -121,6 +136,13 @@ Unix, and a fixed visible-conversation budget. Provider-private tool inputs,
 tool-result payloads, attachments, environment values, and remote URLs do not
 enter the artifact.
 
+The export module owns provider parsing, safe-default redaction, package
+encoding, manifest hashing, and post-write self-validation. Provider-private
+reasoning, attachment bodies, environment values, remote URLs, and tool
+payloads do not cross the adapter boundary. Export creates a new package root
+and private files rather than modifying source sessions or replacing an
+existing package.
+
 ## CLI command boundaries
 
 The CLI has two distinct execution paths:
@@ -134,6 +156,10 @@ rebinder transfer --from <source> --to <target> [session] [--strategy <strategy>
     -> direction-specific transfer adapter
     -> target-native continuation artifact
     -> target provider process
+
+rebinder export --from <source> [session] --output <new-directory>
+    -> source adapter read surface
+    -> canonical package + self-validation
 ```
 
 The command facade MUST pass native provider arguments without interpreting

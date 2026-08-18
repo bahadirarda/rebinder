@@ -9,10 +9,11 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use dialoguer::{Select, theme::ColorfulTheme};
 use rebinder::{
     CapabilitySupport, ClaudeSession, ClaudeTransferStrategy, CompatibilityFindingSeverity,
-    CompatibilityReport, Harness, Inspection, ProviderCapabilities, ValidationReport,
-    assess_package_compatibility, discover_claude_sessions, inspect_package,
-    launch_prepared_codex_session, prepare_claude_to_codex_with_strategy,
-    prepare_continuation_artifact, provider_capabilities, run_harness, validate_package,
+    CompatibilityReport, ExportableSession, Harness, Inspection, ProviderCapabilities,
+    ValidationReport, assess_package_compatibility, discover_claude_sessions,
+    discover_exportable_sessions, export_session, inspect_package, launch_prepared_codex_session,
+    prepare_claude_to_codex_with_strategy, prepare_continuation_artifact, provider_capabilities,
+    run_harness, validate_package,
 };
 
 #[derive(Debug, Parser)]
@@ -36,6 +37,8 @@ enum Command {
     Transfer(TransferArgs),
     /// List sessions available to a provider adapter.
     Sessions(SessionsArgs),
+    /// Export a provider session into a new canonical Rebinder package.
+    Export(ExportArgs),
     /// Show the continuation capabilities declared by a target adapter.
     Capabilities {
         /// Target harness whose adapter capabilities should be reported.
@@ -100,6 +103,22 @@ struct SessionsArgs {
     #[arg(value_enum)]
     harness: HarnessArgument,
     /// Emit machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ExportArgs {
+    /// Harness that owns the source session.
+    #[arg(short = 'f', long, value_enum)]
+    from: HarnessArgument,
+    /// Provider-scoped source session ID; omit for a picker or current-workspace selection.
+    #[arg(value_name = "SESSION_ID")]
+    session_id: Option<String>,
+    /// New package directory; existing paths are never overwritten.
+    #[arg(short, long)]
+    output: PathBuf,
+    /// Emit machine-readable result metadata.
     #[arg(long)]
     json: bool,
 }
@@ -186,6 +205,7 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         Command::Sessions(arguments) => list_sessions(&arguments),
+        Command::Export(arguments) => export_canonical(arguments),
         Command::Capabilities { harness, json } => {
             let capabilities = provider_capabilities(harness.into());
             if json {
@@ -363,16 +383,66 @@ fn human_unit(bytes: u64, unit: u64, suffix: &str) -> String {
 }
 
 fn list_sessions(arguments: &SessionsArgs) -> ExitCode {
-    if arguments.harness != HarnessArgument::Claude {
-        eprintln!("error: only Claude Code session discovery is implemented");
-        return ExitCode::from(2);
+    match arguments.harness {
+        HarnessArgument::Claude => match discover_claude_sessions() {
+            Ok(sessions) => {
+                if arguments.json {
+                    print_json(&sessions);
+                } else {
+                    print_claude_sessions(&sessions);
+                }
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::from(2)
+            }
+        },
+        HarnessArgument::Codex => match discover_exportable_sessions(Harness::Codex) {
+            Ok(sessions) => {
+                if arguments.json {
+                    print_json(&sessions);
+                } else {
+                    print_exportable_sessions(&sessions);
+                }
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::from(2)
+            }
+        },
     }
-    match discover_claude_sessions() {
-        Ok(sessions) => {
+}
+
+fn export_canonical(arguments: ExportArgs) -> ExitCode {
+    let harness = Harness::from(arguments.from);
+    let session_id = match resolve_export_session(harness, arguments.session_id) {
+        Ok(Some(session_id)) => session_id,
+        Ok(None) => {
+            eprintln!("rebinder: export cancelled");
+            return ExitCode::SUCCESS;
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    match export_session(harness, &session_id, &arguments.output) {
+        Ok(exported) => {
             if arguments.json {
-                print_json(&sessions);
+                print_json(&exported);
             } else {
-                print_claude_sessions(&sessions);
+                println!(
+                    "exported {} session {} to {}",
+                    exported.source_provider,
+                    exported.source_session_id,
+                    exported.path.display()
+                );
+                println!(
+                    "{} conversation item(s), {} redacted value(s), package valid",
+                    exported.conversation_items, exported.redacted_values
+                );
             }
             ExitCode::SUCCESS
         }
@@ -381,6 +451,93 @@ fn list_sessions(arguments: &SessionsArgs) -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+fn resolve_export_session(
+    harness: Harness,
+    explicit: Option<String>,
+) -> Result<Option<String>, String> {
+    if explicit.is_some() {
+        return Ok(explicit);
+    }
+    let sessions = discover_exportable_sessions(harness).map_err(|error| error.to_string())?;
+    if sessions.is_empty() {
+        return Err(format!(
+            "no exportable {} sessions were found",
+            harness.executable()
+        ));
+    }
+    if io::stdin().is_terminal() && io::stderr().is_terminal() {
+        let labels = sessions
+            .iter()
+            .map(exportable_session_label)
+            .collect::<Vec<_>>();
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt(format!(
+                "Select a {} session to export",
+                harness.executable()
+            ))
+            .items(&labels)
+            .default(0)
+            .interact_opt()
+            .map_err(|error| format!("cannot read session selection: {error}"))?;
+        return Ok(selection.map(|index| sessions[index].id.clone()));
+    }
+    let current_dir = std::env::current_dir()
+        .map_err(|error| format!("cannot determine current directory: {error}"))?;
+    sessions
+        .into_iter()
+        .find(|session| paths_equivalent_for_cli(&session.cwd, &current_dir))
+        .map(|session| Some(session.id))
+        .ok_or_else(|| {
+            format!(
+                "no {} session matches the current directory; pass an ID explicitly",
+                harness.executable()
+            )
+        })
+}
+
+fn paths_equivalent_for_cli(left: &std::path::Path, right: &std::path::Path) -> bool {
+    left == right
+        || left
+            .canonicalize()
+            .ok()
+            .zip(right.canonicalize().ok())
+            .is_some_and(|(left, right)| left == right)
+}
+
+fn print_exportable_sessions(sessions: &[ExportableSession]) {
+    if sessions.is_empty() {
+        println!("no exportable sessions found");
+        return;
+    }
+    for session in sessions {
+        println!(
+            "{}\t{}\t{}\t{}",
+            session.id,
+            single_line(&session.title),
+            session.cwd.display(),
+            session.updated_at
+        );
+    }
+}
+
+fn exportable_session_label(session: &ExportableSession) -> String {
+    let title = truncate(&single_line(&session.title), 62);
+    let workspace = if session.cwd.is_dir() {
+        truncate(&session.cwd.display().to_string(), 72)
+    } else {
+        format!(
+            "{} (missing)",
+            truncate(&session.cwd.display().to_string(), 62)
+        )
+    };
+    let size = session
+        .source_size_bytes
+        .map(human_bytes)
+        .map(|size| format!(" — {size}"))
+        .unwrap_or_default();
+    format!("{title} — {workspace} — {}{size}", session.updated_at)
 }
 
 fn print_claude_sessions(sessions: &[ClaudeSession]) {

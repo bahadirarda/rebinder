@@ -35,8 +35,10 @@
 > handoffs first create a visible continuation brief from the transferred
 > context, so the opened thread has an explicit current objective and next
 > action. The user stays in Rebinder for the whole operation. The reverse
-> Codex-to-Claude direction and provider-neutral compatibility reporting remain
-> fail-closed. Missing worktrees are reported; Rebinder does not recreate them.
+> Codex and Claude sessions can also be exported into validated canonical
+> packages without resuming the source session. Codex-to-Claude native launch
+> remains fail-closed. Missing worktrees are reported; Rebinder does not
+> recreate them.
 
 ## Install
 
@@ -161,6 +163,39 @@ brief.
 Legacy flattened handoff bindings are left intact and upgraded into a fresh
 role-preserving thread the first time this format is used.
 
+## Export canonical session packages
+
+Export a provider session into the seven-document interchange format:
+
+```bash
+rebinder export --from claude SESSION_ID --output ./claude-session
+rebinder export --from codex THREAD_ID --output ./codex-session --json
+```
+
+Omit the ID in a terminal to choose from an interactive provider-native list.
+In a non-interactive shell, omission selects only the newest session whose
+recorded workspace matches the current directory. Codex threads can also be
+listed without resuming them:
+
+```bash
+rebinder sessions codex
+rebinder sessions codex --json
+```
+
+Claude export reads the local Claude Code project store directly and does not
+require Codex. Codex discovery uses `thread/list`; export uses
+`thread/read(includeTurns: true)`, which does not resume or subscribe to the
+thread. Rebinder never edits either provider store.
+
+Every export captures visible user/assistant text, task intent, recorded
+workspace, readable Git head/change facts, a bounded handoff, and provenance.
+Private reasoning, attachment payloads, environment values, remote URLs, and
+tool input/output payloads are excluded by default. Common credential shapes
+in visible text are best-effort redacted. The output directory must be new;
+Rebinder creates it as `0700` with `0600` files on Unix, calculates all
+manifest digests, and validates the completed package before reporting
+success. Review exported visible text before sharing it.
+
 ## Other commands
 
 Run native harness commands through Rebinder without changing their arguments:
@@ -212,6 +247,7 @@ than pretending an incompatible target artifact was created.
 | Filesystem safety | Relative-path confinement, regular-file enforcement, and symlink rejection |
 | Conversation graph | Unique IDs and valid parent references |
 | Provenance | Source adapter identity, transformations, export time, and redactions |
+| Canonical export | Reads Claude locally and Codex through its read-only app-server methods, emits a validated package, and never resumes or mutates the source session |
 | Harness commands | Native arguments, interactive streams, and process status are preserved |
 | Claude discovery | Lists Codex-supported local Claude sessions, sizes, and recommended strategies without printing transcript content |
 | Claude to Codex | Selects interactively or by ID, uses Codex-native import or thread APIs, and opens the native thread from Rebinder in the recorded workspace |
@@ -220,7 +256,7 @@ than pretending an incompatible target artifact was created.
 | Worktrees | Reuses an existing recorded worktree; missing workspace paths fail closed |
 | Compatibility | Declares Codex and Claude continuation capabilities and reports package-specific preserved, summarized, omitted, or blocking state in human/JSON form |
 | Continuation artifact | Produces bounded Markdown continuation state from a validated package without tool output, environment values, attachment payloads, or remote URLs |
-| Codex to Claude | Not implemented; exits closed with code `2` |
+| Codex to Claude | Native target launch is not implemented yet; exits closed with code `2` |
 
 The initial package format is documented in the
 [Interchange Format 0.1.0](docs/format/interchange-format-0.1.md) specification.
@@ -285,6 +321,11 @@ their package first, excludes tool-result payloads and environment values,
 creates them without overwriting an existing path, and uses mode `0600` on
 Unix. Review an artifact before sharing it because visible conversation and
 handoff text may still contain private project information.
+
+Canonical exports use the same sensitive-data boundary. Provider-private
+reasoning and payloads are excluded and provenance records redaction counts,
+but visible user and assistant text is intentionally portable and automated
+credential redaction is best effort rather than a substitute for review.
 
 ## License
 

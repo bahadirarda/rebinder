@@ -33,6 +33,10 @@ README examples and release notes MUST preserve this distinction.
 - Codex and Claude target capability declarations
 - Package-specific human and JSON compatibility reports
 - Bounded provider-neutral Markdown continuation artifacts
+- Local Claude Code session discovery and canonical-package export independent of Codex
+- Codex thread discovery and non-resuming canonical export through the app-server
+- Safe-default provider-private payload, remote URL, and credential redaction provenance
+- Create-new private package output followed by schema and SHA-256 self-validation
 - Calendar release identity `0.YYYYMMDD.REVISION`
 - Changesets release-intent ledger and automated version pull requests
 - Checksum-verifying Unix and Windows installers
@@ -96,8 +100,6 @@ to the current user.
 
 ## Pending MVP capabilities
 
-- Codex session discovery and canonical export
-- Claude Code canonical-package export independent of Codex
 - End-to-end Codex-to-Claude transfer
 - Missing-worktree reconstruction
 

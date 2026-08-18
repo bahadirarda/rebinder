@@ -27,6 +27,7 @@ Rebinder rebinds an agent session's portable state to a different coding agent h
 - [ADR-0004: Calendar releases and native distribution](docs/decisions/ADR-0004-calendar-releases.md)
 - [ADR-0005: Codex native import bridge](docs/decisions/ADR-0005-codex-native-import-bridge.md)
 - [ADR-0006: Capability-aware continuation artifacts](docs/decisions/ADR-0006-capability-aware-continuation-artifacts.md)
+- [ADR-0007: Non-resuming canonical provider export](docs/decisions/ADR-0007-non-resuming-canonical-export.md)
 
 ## Status
 
@@ -39,5 +40,6 @@ brief is created. Interchange schema `0.1.0`, Rust package validation and
 inspection, verified native distribution, command passthrough, and the product
 site are also implemented. Target capability declarations, package-specific
 compatibility reports, and bounded provider-neutral continuation artifacts are
-available. Canonical provider export and Codex-to-Claude native transfer remain
-pending.
+available. Claude and Codex source sessions can be exported into self-validated
+canonical packages without resuming or mutating them. Codex-to-Claude native
+transfer and missing-worktree reconstruction remain pending.

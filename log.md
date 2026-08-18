@@ -10,6 +10,8 @@
   context appears as a visible continuation brief before Codex opens.
 - Added target capability declarations, package-specific compatibility reports,
   and bounded provider-neutral continuation artifact generation.
+- Added independent Claude Code and non-resuming Codex canonical-package
+  exporters with safe-default redaction, private output, and self-validation.
 
 ## 2026-08-17
 

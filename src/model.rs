@@ -7,6 +7,7 @@ use serde_json::Value;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceDescriptor {
     pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub harness_version: Option<String>,
     pub adapter_version: String,
 }
@@ -35,6 +36,7 @@ pub struct Session {
     pub title: String,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub source_session_id: Option<String>,
     #[serde(default)]
     pub labels: Vec<String>,
@@ -46,6 +48,7 @@ pub struct ConversationItem {
     pub id: String,
     pub parent_id: Option<String>,
     pub role: ConversationRole,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
     pub content: Vec<Value>,
 }
@@ -107,6 +110,7 @@ pub struct PlanStep {
     pub id: String,
     pub description: String,
     pub status: PlanStepStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
 }
 
@@ -122,6 +126,7 @@ pub enum PlanStepStatus {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Decision {
     pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rationale: Option<String>,
 }
 
@@ -146,6 +151,7 @@ pub struct WorkspaceRoot {
 pub struct WorkspaceFile {
     pub path: String,
     pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
 }
 
@@ -153,6 +159,7 @@ pub struct WorkspaceFile {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EnvironmentEntry {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
     pub redacted: bool,
 }
@@ -171,6 +178,7 @@ pub struct Repository {
     pub head: RepositoryHead,
     pub remotes: Vec<Remote>,
     pub changes: Vec<RepositoryChange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub patch_file: Option<String>,
 }
 
@@ -178,6 +186,7 @@ pub struct Repository {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepositoryHead {
     pub commit: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
     pub detached: bool,
 }
@@ -186,6 +195,7 @@ pub struct RepositoryHead {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Remote {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     pub redacted: bool,
 }
@@ -211,7 +221,9 @@ pub struct Provenance {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Transformation {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
 }
 
