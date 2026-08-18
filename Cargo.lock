@@ -821,7 +821,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rebinder"
-version = "0.20260818.7"
+version = "0.20260818.8"
 dependencies = [
  "clap",
  "dialoguer",
