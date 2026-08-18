@@ -169,8 +169,18 @@ The reverse module owns only target binding and launch. It derives a stable
 UUID from the source Codex thread, rejects target CLI flags that could replace
 that binding, and delegates all native transcript creation to Claude Code. Its
 staging directories are process-unique, private on Unix, and removed after
-preparation or after the interactive target exits. Missing recorded workspaces
-still fail closed before Claude starts.
+preparation or after the interactive target exits.
+
+The worktree module is shared by both transfer directions and runs only after
+explicit `--recover-worktree` opt-in. It resolves an existing repository from
+the supplied `--worktree-repository`, an ancestor, or a bounded direct-sibling
+scan; parses `git worktree list --porcelain`; and accepts only one exact,
+unlocked missing-path registration with a locally valid commit. It invokes
+`git worktree add --force` without a shell or network operation, then verifies
+HEAD, an attached branch when present, and the canonical common Git directory.
+Existing targets, missing parents, immediate symlink parents, locked entries,
+and ambiguous registrations stop before provider launch. The module restores
+only committed checkout state.
 
 ## CLI command boundaries
 
@@ -181,7 +191,7 @@ rebinder <harness> <native arguments>
     -> transparent harness command facade
     -> provider process
 
-rebinder transfer --from <source> --to <target> [session] [--strategy <strategy>] -- [target arguments]
+rebinder transfer --from <source> --to <target> [session] [--strategy <strategy>] [--recover-worktree] -- [target arguments]
     -> direction-specific transfer adapter
     -> target-native continuation artifact
     -> target provider process
@@ -202,5 +212,5 @@ latest session whose recorded `cwd` resolves to the current directory. An
 explicit ID can select another discovered session. The auto strategy routes
 large sources through a bounded, persistent handoff injected into a native
 Codex thread. Rebinder owns selection and opening, so users do not manually run
-Codex resume commands for a transfer. A missing recorded directory is an error;
-the MVP reuses existing worktrees but does not recreate them.
+Codex resume commands for a transfer. A missing recorded directory is an error
+unless the user opts in to the shared exact registered-worktree recovery path.

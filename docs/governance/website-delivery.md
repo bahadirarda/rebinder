@@ -15,14 +15,14 @@ dependency-free semantic HTML, CSS, and progressive JavaScript. Core product
 content, navigation, install commands, and project links remain available
 without client-side rendering.
 
-The website presents both operational transfer directions separately from
-remaining worktree reconstruction. It may describe Claude and Codex session
+The website presents both operational transfer directions and the explicit
+registered-worktree recovery boundary. It may describe Claude and Codex session
 discovery, interactive source selection, context-safe handoffs, native target
 session binding, canonical export, capability-aware compatibility reporting,
 native command passthrough, session-package validation and inspection, the
-interchange format, and verified native releases as available. It MUST
-identify missing-worktree reconstruction as pending until that capability is
-released.
+interchange format, exact unlocked worktree recovery, and verified native
+releases as available. It MUST distinguish this bounded local recovery from
+clone, fetch, unlock, overwrite, and uncommitted-state restoration.
 
 ## Visual and accessibility contract
 
@@ -45,8 +45,9 @@ root sitemap, which contains only the canonical indexable product URL.
 
 The root `llms.txt` gives coding agents a concise product summary and curated
 links to raw product, architecture, format, distribution, and source documents.
-It explicitly repeats the current two-way transfer and worktree availability
-boundary and is a discovery aid rather than an access-control mechanism.
+It explicitly repeats the current two-way transfer and registered-worktree
+recovery boundary and is a discovery aid rather than an access-control
+mechanism.
 
 ## Installer boundary
 

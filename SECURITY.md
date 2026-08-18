@@ -73,6 +73,18 @@ dangerous permission flags unless the user explicitly supplies them after
 binding. Treat source text as untrusted: fencing reduces instruction confusion
 but does not turn historical content into trusted policy.
 
+Missing-worktree recovery is disabled unless the user supplies
+`--recover-worktree`. It is a deliberate filesystem mutation, limited to an
+exact path that one existing local repository still reports through `git
+worktree list --porcelain`. Rebinder rejects existing targets, missing parents,
+immediate symlink parents, locked registrations, unavailable commits, broad or
+ambiguous repository discovery, and attached-branch changes observed during
+creation. Git is invoked directly without a shell; recovery does not fetch,
+clone, unlock, overwrite, or contact a remote. After creation Rebinder verifies
+HEAD, attached branch state, and the common Git directory before starting a
+provider. A removed worktree's uncommitted and ignored files are not recoverable
+through this feature.
+
 You should receive an acknowledgement within seven days. Publication and fix
 timing depend on severity and whether a coordinated provider disclosure is
 required.

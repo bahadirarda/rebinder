@@ -28,7 +28,7 @@ README examples and release notes MUST preserve this distinction.
 - Visible, history-grounded continuation briefs for bounded handoffs
 - Retry-safe injection/compaction/activation ledger and native repeat-update compaction
 - Rebinder-owned Codex opening in the Claude session's recorded workspace or worktree
-- Fail-closed handling for missing workspaces and unsupported directions
+- Fail-closed handling for missing workspaces unless exact registered-worktree recovery is explicitly requested
 - Human and JSON session inventory output
 - Codex and Claude target capability declarations
 - Package-specific human and JSON compatibility reports
@@ -40,6 +40,8 @@ README examples and release notes MUST preserve this distinction.
 - Codex-to-Claude bounded canonical transfer through native Claude start/resume commands
 - Deterministic Claude target binding with semantic-revision deduplication
 - Private temporary Claude context files and explicit untrusted-history fencing
+- Opt-in missing-worktree recovery from an exact unlocked local Git registry entry
+- Post-recovery HEAD, attached-branch, and common-directory verification
 - Calendar release identity `0.YYYYMMDD.REVISION`
 - Changesets release-intent ledger and automated version pull requests
 - Checksum-verifying Unix and Windows installers
@@ -101,9 +103,9 @@ Tool-result payloads, attachments, environment values, and remote URLs are
 omitted. Existing output paths are never overwritten and Unix output is private
 to the current user.
 
-## Pending MVP capabilities
+## MVP capability boundary
 
-- Missing-worktree reconstruction
-
-No pending capability may be described as available in installation or release
-documentation before its acceptance tests pass.
+The planned two-way transfer, canonical portability, and safe registered
+worktree-recovery slices are implemented. Recovery does not clone repositories,
+fetch remotes, unlock worktrees, overwrite paths, or restore uncommitted
+changes; those behaviors remain intentionally outside the MVP.

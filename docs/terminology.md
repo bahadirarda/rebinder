@@ -119,7 +119,15 @@ supported CLI. It never constructs or writes a Claude transcript itself.
 
 The working directory stored with the source session. It may be a repository
 root, nested directory, or Git worktree. The initial transfer MVP reuses this
-directory when it exists and fails closed when it does not.
+directory when it exists. A missing path fails closed unless the user opts in
+to exact registered-worktree recovery.
+
+## Registered Worktree Recovery
+
+An explicit operation that recreates a missing committed checkout only when an
+existing local Git repository still registers that exact worktree path. It is
+not a clone, remote fetch, repository repair, worktree unlock, backup restore,
+or recovery of uncommitted changes.
 
 ## Harness Command Facade
 

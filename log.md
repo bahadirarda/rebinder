@@ -14,6 +14,8 @@
   exporters with safe-default redaction, private output, and self-validation.
 - Added Codex-to-Claude bounded canonical transfer with native Claude session
   creation/resume and semantic-revision deduplication.
+- Added opt-in exact registered-worktree recovery shared by both transfer
+  directions, including post-checkout Git identity verification.
 
 ## 2026-08-17
 

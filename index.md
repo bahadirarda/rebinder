@@ -29,6 +29,7 @@ Rebinder rebinds an agent session's portable state to a different coding agent h
 - [ADR-0006: Capability-aware continuation artifacts](docs/decisions/ADR-0006-capability-aware-continuation-artifacts.md)
 - [ADR-0007: Non-resuming canonical provider export](docs/decisions/ADR-0007-non-resuming-canonical-export.md)
 - [ADR-0008: Canonical Codex-to-Claude continuation](docs/decisions/ADR-0008-canonical-codex-to-claude-continuation.md)
+- [ADR-0009: Opt-in registered worktree recovery](docs/decisions/ADR-0009-opt-in-registered-worktree-recovery.md)
 
 ## Status
 
@@ -42,5 +43,6 @@ semantic revision and reuse the existing binding on repeat. Interchange schema
 `0.1.0`, Rust package validation and inspection, verified native distribution,
 command passthrough, canonical export, capability declarations,
 package-specific compatibility reports, bounded provider-neutral artifacts,
-and the product site are implemented. Missing-worktree reconstruction remains
-pending.
+explicit exact registered-worktree recovery, and the product site are
+implemented. Recovery deliberately excludes clone, fetch, unlock, overwrite,
+and uncommitted-state restoration.

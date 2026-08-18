@@ -38,8 +38,9 @@
 > directions are operational. Claude-to-Codex uses Codex's native
 > importer or bounded thread APIs. Codex-to-Claude exports a bounded canonical
 > checkpoint and opens a deterministic native Claude session through Claude's
-> supported start/resume CLI. Missing worktrees are reported; Rebinder does not
-> recreate them.
+> supported start/resume CLI. A missing workspace still fails closed by
+> default; explicit `--recover-worktree` can recreate only an exact, unlocked
+> worktree that Git still registers.
 
 ## Install
 
@@ -198,6 +199,35 @@ flags such as `--resume`, `--continue`, `--session-id`, `--name`, and
 `--worktree` are rejected after `--`; use the Rebinder session selection
 instead. `--strategy` remains specific to Claude-to-Codex transfer.
 
+## Recover a missing registered worktree
+
+Both transfer directions fail before opening the target when the recorded
+workspace is missing. If that path was a Git worktree and Git still has its
+exact registry entry, opt in to rebuilding its committed checkout:
+
+```bash
+rebinder transfer SESSION_ID --from claude --to codex --recover-worktree
+rebinder transfer THREAD_ID --from codex --to claude --recover-worktree
+```
+
+Rebinder first looks for the owning repository in existing ancestors, then in
+a bounded set of sibling Git directories. For a sibling or otherwise distant
+main worktree, remove discovery ambiguity explicitly:
+
+```bash
+rebinder transfer THREAD_ID --from codex --to claude \
+  --recover-worktree --worktree-repository /path/to/main-worktree
+```
+
+Recovery is deliberately narrower than clone or checkout. The target path must
+not exist, its parent must already exist, Git must report that exact path from
+`git worktree list --porcelain`, and the registration must be unlocked with a
+valid local commit. Rebinder uses `git worktree add --force`, then verifies the
+HEAD, branch when attached, and common Git directory before opening the target.
+It never fetches, clones, overwrites a path, unlocks a worktree, or claims to
+restore uncommitted changes. Without the opt-in flag, the old fail-closed
+behavior is unchanged.
+
 ## Export canonical session packages
 
 Export a provider session into the seven-document interchange format:
@@ -285,7 +315,7 @@ permissions on Unix and are never overwritten.
 | Claude to Codex | Selects interactively or by ID, uses Codex-native import or thread APIs, and opens the native thread from Rebinder in the recorded workspace |
 | Context guard | Injects bounded compact-summary and recent-message items with their user/assistant roles preserved, then creates a visible continuation brief for source transcripts larger than 512 KiB |
 | Repeat transfer | Reuses the strategy-specific thread, ignores metadata-only source churn, and performs compaction and visible activation once per meaningful handoff revision |
-| Worktrees | Reuses an existing recorded worktree; missing workspace paths fail closed |
+| Worktrees | Reuses existing worktrees; with explicit opt-in, recreates only an unlocked exact Git registry entry and verifies its committed checkout before target launch |
 | Compatibility | Declares Codex and Claude continuation capabilities and reports package-specific preserved, summarized, omitted, or blocking state in human/JSON form |
 | Continuation artifact | Produces bounded Markdown continuation state from a validated package without tool output, environment values, attachment payloads, or remote URLs |
 | Codex to Claude | Exports a bounded canonical checkpoint, creates or resumes a deterministic native Claude session, prevents duplicate revision injection, and opens it from Rebinder |
@@ -344,7 +374,7 @@ select settings, credentials, plugins, skills, or MCP configuration. Rebinder
 starts one read-only, no-tool model turn to make a new handoff revision visible,
 which consumes Codex model tokens. Rebinder never prints handoff content and
 rejects symlinked handoff targets. It fails
-closed on invalid structure, unsafe paths, missing workspaces, integrity
+closed on invalid structure, unsafe paths, unapproved or unverifiable missing workspaces, integrity
 failures, and provenance mismatches. Report vulnerabilities through the private
 process in [SECURITY.md](SECURITY.md), not a public issue.
 
@@ -366,6 +396,12 @@ context. A short revision marker and Claude's visible continuation brief remain
 in the native target transcript. Review source conversation text because no
 prompt-injection boundary can make untrusted history equivalent to trusted
 instructions.
+
+Worktree recovery is an explicit filesystem mutation. Rebinder will not create
+over an existing path, traverse an immediate symlink parent, unlock a registry
+entry, contact a remote, or restore uncommitted state. Review the repository
+and target path before using `--recover-worktree`, especially when supplying
+`--worktree-repository`.
 
 ## License
 
