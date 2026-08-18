@@ -326,23 +326,131 @@ fn codex_command_forwards_arguments_unchanged() {
     assert_eq!(String::from_utf8_lossy(&output.stdout), "resume\n--last\n");
 }
 
+#[cfg(unix)]
 #[test]
-fn unsupported_transfer_direction_fails_closed() {
-    let output = Command::new(env!("CARGO_BIN_EXE_rebinder"))
-        .args([
-            "transfer",
-            "--from",
-            "codex",
-            "--to",
-            "claude",
-            "session-123",
-        ])
-        .output()
-        .expect("run cross-harness transfer");
+fn codex_to_claude_creates_then_idempotently_resumes_a_native_session() {
+    use std::{fs, os::unix::fs::PermissionsExt};
 
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("codex to claude transfer is not implemented yet"));
+    let fixture = tempfile::tempdir().expect("create reverse transfer fixture");
+    let bin = fixture.path().join("bin");
+    let workspace = fixture.path().join("workspace");
+    let claude_config = fixture.path().join("claude");
+    let arguments_log = fixture.path().join("claude-arguments.txt");
+    let cwd_log = fixture.path().join("claude-cwd.txt");
+    fs::create_dir_all(&bin).expect("create bin");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    let cwd_json = serde_json::to_string(workspace.to_str().expect("UTF-8 workspace"))
+        .expect("encode workspace");
+
+    let codex = bin.join("codex");
+    let codex_script = format!(
+        r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\n' 'codex-cli 1.0.0'
+  exit 0
+fi
+if [ "$1" = "app-server" ]; then
+  while IFS= read -r line; do
+    case "$line" in
+      *'"id":0'*) printf '%s\n' '{{"id":0,"result":{{}}}}' ;;
+      *'"id":100'*) printf '%s\n' '{{"id":100,"result":{{"data":[{{"id":"codex-source-1","name":"Reverse transfer fixture","cwd":{cwd_json},"createdAt":1777685701,"updatedAt":1777685761}}],"nextCursor":null}}}}' ;;
+      *'"id":500'*) printf '%s\n' '{{"id":500,"result":{{"thread":{{"id":"codex-source-1","name":"Reverse transfer fixture","cwd":{cwd_json},"createdAt":1777685701,"updatedAt":1777685761,"turns":[{{"id":"turn-1","status":"completed","items":[{{"type":"userMessage","id":"user-1","content":[{{"type":"text","text":"Continue the reverse adapter"}}]}},{{"type":"commandExecution","id":"tool-1","command":"private command","cwd":{cwd_json},"status":"completed","aggregatedOutput":"private output"}},{{"type":"agentMessage","id":"agent-1","text":"The source checkpoint is ready","phase":"final_answer"}}]}}]}}}}}}' ;;
+    esac
+  done
+  exit 0
+fi
+exit 64
+"#
+    );
+    fs::write(&codex, codex_script).expect("write fake Codex");
+
+    let claude = bin.join("claude");
+    let claude_script = format!(
+        r#"#!/bin/sh
+printf '%s\n' '---' >> "$FAKE_CLAUDE_ARGUMENTS_LOG"
+printf '%s\n' "$@" >> "$FAKE_CLAUDE_ARGUMENTS_LOG"
+printf '%s\n' "$PWD" >> "$FAKE_CLAUDE_CWD_LOG"
+previous=''
+target_id=''
+artifact=''
+prompt=''
+for argument in "$@"; do
+  if [ "$previous" = '--session-id' ] || [ "$previous" = '--resume' ]; then target_id="$argument"; fi
+  if [ "$previous" = '--append-system-prompt-file' ]; then artifact="$argument"; fi
+  previous="$argument"
+  prompt="$argument"
+done
+if [ -n "$artifact" ]; then
+  test "$(stat -c '%a' "$artifact")" = '600' || exit 65
+  grep -q '# Rebinder Continuation Artifact' "$artifact" || exit 66
+  if grep -q 'private output' "$artifact"; then exit 67; fi
+fi
+if printf '%s\n' "$@" | grep -q -- '--session-id'; then
+  revision="$(printf '%s\n' "$prompt" | sed -n 's/.*Rebinder revision: `\([^`]*\)`.*/\1/p')"
+  test -n "$revision" || exit 68
+  mkdir -p "$CLAUDE_CONFIG_DIR/projects/project"
+  printf '%s\n' '{{"type":"user","sessionId":"'"$target_id"'","cwd":{cwd_json},"timestamp":"2026-08-18T09:00:00Z","message":{{"content":"Rebinder revision: `'"$revision"'`"}}}}' > "$CLAUDE_CONFIG_DIR/projects/project/$target_id.jsonl"
+  printf '%s\n' '{{"type":"assistant","sessionId":"'"$target_id"'","cwd":{cwd_json},"timestamp":"2026-08-18T09:00:01Z","message":{{"content":"Ready to continue"}}}}' >> "$CLAUDE_CONFIG_DIR/projects/project/$target_id.jsonl"
+fi
+exit 0
+"#
+    );
+    fs::write(&claude, claude_script).expect("write fake Claude");
+    for executable in [&codex, &claude] {
+        let mut permissions = fs::metadata(executable)
+            .expect("read fake executable metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).expect("make fake executable runnable");
+    }
+
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_rebinder"))
+            .args([
+                "transfer",
+                "--from",
+                "codex",
+                "--to",
+                "claude",
+                "codex-source-1",
+                "--",
+                "--model",
+                "fixture-model",
+            ])
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("CLAUDE_CONFIG_DIR", &claude_config)
+            .env("FAKE_CLAUDE_ARGUMENTS_LOG", &arguments_log)
+            .env("FAKE_CLAUDE_CWD_LOG", &cwd_log)
+            .output()
+            .expect("run reverse transfer")
+    };
+    let first = run();
+    assert!(
+        first.status.success(),
+        "first reverse transfer failed: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(String::from_utf8_lossy(&first.stderr).contains("as new Claude session"));
+    let second = run();
+    assert!(
+        second.status.success(),
+        "repeat reverse transfer failed: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(String::from_utf8_lossy(&second.stderr).contains("already active"));
+
+    let arguments = fs::read_to_string(&arguments_log).expect("read Claude arguments");
+    assert_eq!(arguments.matches("--session-id").count(), 1);
+    assert_eq!(arguments.matches("--resume").count(), 1);
+    assert_eq!(arguments.matches("--append-system-prompt-file").count(), 1);
+    assert_eq!(arguments.matches("Rebinder revision:").count(), 1);
+    assert_eq!(arguments.matches("--model").count(), 2);
+    let workspaces = fs::read_to_string(&cwd_log).expect("read Claude cwd");
+    assert!(
+        workspaces
+            .lines()
+            .all(|line| line == workspace.display().to_string())
+    );
 }
 
 #[cfg(unix)]

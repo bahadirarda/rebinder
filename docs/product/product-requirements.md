@@ -135,6 +135,24 @@ new directory, MUST NOT overwrite an existing path, MUST use private Unix
 permissions where supported, and MUST pass normal package validation before
 success is reported.
 
+### FR-015 — Codex-to-Claude native continuation
+
+Codex-to-Claude transfer MUST read the selected Codex thread through supported
+app-server methods, produce and validate canonical state, assess Claude target
+compatibility, and open Claude Code from Rebinder in the recorded workspace.
+The adapter MUST create a deterministic native Claude session for the source
+thread and MUST resume that session on repeat transfer. Users MUST NOT need to
+run a separate Claude resume command.
+
+The target context MUST be bounded, stored only in a private temporary file
+while the target invocation needs it, and identified as untrusted historical
+data. A semantic source revision MUST cover conversation, task, workspace,
+repository, handoff, and session state. An already activated revision MUST NOT
+be injected again; a changed revision MUST update the existing target session.
+Activation MUST request a visible continuation brief without tool use and MUST
+disclose target-model token consumption. Rebinder MUST reject target arguments
+that conflict with its target session binding.
+
 ## Quality requirements
 
 - The interchange package SHOULD be human-readable and Git-friendly.

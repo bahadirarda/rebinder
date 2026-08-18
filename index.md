@@ -28,18 +28,19 @@ Rebinder rebinds an agent session's portable state to a different coding agent h
 - [ADR-0005: Codex native import bridge](docs/decisions/ADR-0005-codex-native-import-bridge.md)
 - [ADR-0006: Capability-aware continuation artifacts](docs/decisions/ADR-0006-capability-aware-continuation-artifacts.md)
 - [ADR-0007: Non-resuming canonical provider export](docs/decisions/ADR-0007-non-resuming-canonical-export.md)
+- [ADR-0008: Canonical Codex-to-Claude continuation](docs/decisions/ADR-0008-canonical-codex-to-claude-continuation.md)
 
 ## Status
 
-The project has an operational one-way transfer MVP. Local Claude Code sessions
-can be selected interactively, imported into native Codex threads, and resumed
-in their recorded workspace directly through Rebinder. Large transcripts use a
-bounded, role-preserving context-safe handoff by default, and meaningful repeat
-updates are compacted natively before a visible, history-grounded continuation
-brief is created. Interchange schema `0.1.0`, Rust package validation and
-inspection, verified native distribution, command passthrough, and the product
-site are also implemented. Target capability declarations, package-specific
-compatibility reports, and bounded provider-neutral continuation artifacts are
-available. Claude and Codex source sessions can be exported into self-validated
-canonical packages without resuming or mutating them. Codex-to-Claude native
-transfer and missing-worktree reconstruction remain pending.
+The project has an operational two-way transfer MVP. Local Claude Code and
+Codex sessions can be selected interactively and continued in deterministic
+native target sessions through supported provider surfaces. Large
+Claude-to-Codex transcripts use a bounded, role-preserving context-safe handoff
+by default; Codex-to-Claude creates a private bounded canonical checkpoint.
+Both paths produce a visible, history-grounded continuation brief for a new
+semantic revision and reuse the existing binding on repeat. Interchange schema
+`0.1.0`, Rust package validation and inspection, verified native distribution,
+command passthrough, canonical export, capability declarations,
+package-specific compatibility reports, bounded provider-neutral artifacts,
+and the product site are implemented. Missing-worktree reconstruction remains
+pending.

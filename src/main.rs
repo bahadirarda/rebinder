@@ -8,12 +8,12 @@ use std::{
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use dialoguer::{Select, theme::ColorfulTheme};
 use rebinder::{
-    CapabilitySupport, ClaudeSession, ClaudeTransferStrategy, CompatibilityFindingSeverity,
-    CompatibilityReport, ExportableSession, Harness, Inspection, ProviderCapabilities,
-    ValidationReport, assess_package_compatibility, discover_claude_sessions,
-    discover_exportable_sessions, export_session, inspect_package, launch_prepared_codex_session,
-    prepare_claude_to_codex_with_strategy, prepare_continuation_artifact, provider_capabilities,
-    run_harness, validate_package,
+    CapabilitySupport, ClaudeContinuationState, ClaudeSession, ClaudeTransferStrategy,
+    CompatibilityFindingSeverity, CompatibilityReport, ExportableSession, Harness, Inspection,
+    ProviderCapabilities, ValidationReport, assess_package_compatibility, discover_claude_sessions,
+    discover_exportable_sessions, export_session, inspect_package, launch_prepared_claude_session,
+    launch_prepared_codex_session, prepare_claude_to_codex_with_strategy, prepare_codex_to_claude,
+    prepare_continuation_artifact, provider_capabilities, run_harness, validate_package,
 };
 
 #[derive(Debug, Parser)]
@@ -197,12 +197,7 @@ fn main() -> ExitCode {
             if arguments.from == HarnessArgument::Claude && arguments.to == HarnessArgument::Codex {
                 return transfer_claude_to_codex(arguments);
             }
-            eprintln!(
-                "error: {} to {} transfer is not implemented yet",
-                Harness::from(arguments.from).executable(),
-                Harness::from(arguments.to).executable(),
-            );
-            ExitCode::from(2)
+            transfer_codex_to_claude(arguments)
         }
         Command::Sessions(arguments) => list_sessions(&arguments),
         Command::Export(arguments) => export_canonical(arguments),
@@ -306,6 +301,66 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
     eprintln!("rebinder: opening Codex in {}", prepared.cwd.display());
 
     match launch_prepared_codex_session(&prepared, arguments.target_arguments) {
+        Ok(status) => status
+            .code()
+            .and_then(|code| u8::try_from(code).ok())
+            .map_or_else(|| ExitCode::from(1), ExitCode::from),
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::from(127)
+        }
+    }
+}
+
+fn transfer_codex_to_claude(arguments: TransferArgs) -> ExitCode {
+    if arguments.strategy != TransferStrategyArgument::Auto {
+        eprintln!(
+            "error: --strategy applies only to Claude-to-Codex transfer; Codex-to-Claude always uses a bounded canonical artifact"
+        );
+        return ExitCode::from(2);
+    }
+    let session_id = match resolve_export_session(Harness::Codex, arguments.session_id) {
+        Ok(Some(session_id)) => session_id,
+        Ok(None) => {
+            eprintln!("rebinder: transfer cancelled");
+            return ExitCode::SUCCESS;
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    let prepared = match prepare_codex_to_claude(&session_id) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    match prepared.state {
+        ClaudeContinuationState::New => eprintln!(
+            "rebinder: prepared Codex session {} as new Claude session {}",
+            prepared.source_session_id, prepared.claude_session_id
+        ),
+        ClaudeContinuationState::Updated => eprintln!(
+            "rebinder: prepared a new canonical revision for Claude session {}",
+            prepared.claude_session_id
+        ),
+        ClaudeContinuationState::Unchanged => eprintln!(
+            "rebinder: canonical revision is already active in Claude session {}",
+            prepared.claude_session_id
+        ),
+    }
+    eprintln!(
+        "rebinder: compatibility {} with {} declared information-loss finding(s)",
+        prepared.compatibility.level.as_str(),
+        prepared.compatibility.findings.len()
+    );
+    eprintln!(
+        "rebinder: opening Claude Code in {}",
+        prepared.cwd.display()
+    );
+    match launch_prepared_claude_session(&prepared, arguments.target_arguments) {
         Ok(status) => status
             .code()
             .and_then(|code| u8::try_from(code).ok())

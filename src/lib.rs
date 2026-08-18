@@ -6,6 +6,7 @@ mod handoff;
 pub mod harness;
 pub mod inspection;
 pub mod model;
+pub mod reverse;
 pub mod transfer;
 pub mod validation;
 
@@ -20,6 +21,10 @@ pub use export::{
 };
 pub use harness::{Harness, HarnessLaunchError, run_harness};
 pub use inspection::{Inspection, PackageSummary, inspect_package};
+pub use reverse::{
+    ClaudeContinuationState, PreparedClaudeSession, ReverseTransferError,
+    launch_prepared_claude_session, prepare_codex_to_claude,
+};
 pub use transfer::{
     ClaudeSession, ClaudeSessionState, ClaudeTransferStrategy, PreparedCodexSession, TransferError,
     discover_claude_sessions, launch_prepared_codex_session, prepare_claude_to_codex,
