@@ -158,6 +158,21 @@ pub fn export_session(
     write_package(output.as_ref(), canonical)
 }
 
+pub(crate) fn local_claude_session_path(session_id: &str) -> Result<Option<PathBuf>, ExportError> {
+    let mut matches = discover_local_claude_sessions()?
+        .into_iter()
+        .filter(|session| session.id == session_id)
+        .filter_map(|session| session.source_path);
+    let selected = matches.next();
+    if selected.is_some() && matches.next().is_some() {
+        return Err(ExportError::AmbiguousSession {
+            provider: "claude",
+            session_id: session_id.to_owned(),
+        });
+    }
+    Ok(selected)
+}
+
 fn discover_local_claude_sessions() -> Result<Vec<ExportableSession>, ExportError> {
     let root = claude_projects_directory()?;
     discover_local_claude_sessions_in(&root)

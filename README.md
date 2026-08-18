@@ -34,10 +34,11 @@
 > and immediately open it in the session's recorded workspace. Large-session
 > handoffs first create a visible continuation brief from the transferred
 > context, so the opened thread has an explicit current objective and next
-> action. The user stays in Rebinder for the whole operation. The reverse
-> Codex and Claude sessions can also be exported into validated canonical
-> packages without resuming the source session. Codex-to-Claude native launch
-> remains fail-closed. Missing worktrees are reported; Rebinder does not
+> action. The user stays in Rebinder for the whole operation. Both transfer
+> directions are operational. Claude-to-Codex uses Codex's native
+> importer or bounded thread APIs. Codex-to-Claude exports a bounded canonical
+> checkpoint and opens a deterministic native Claude session through Claude's
+> supported start/resume CLI. Missing worktrees are reported; Rebinder does not
 > recreate them.
 
 ## Install
@@ -163,6 +164,40 @@ brief.
 Legacy flattened handoff bindings are left intact and upgraded into a fresh
 role-preserving thread the first time this format is used.
 
+## Transfer Codex to Claude Code
+
+List Codex threads without resuming them, then continue one in Claude Code:
+
+```bash
+rebinder sessions codex
+rebinder transfer --from codex --to claude
+rebinder transfer THREAD_ID --from codex --to claude
+```
+
+Omitting the ID opens the same arrow-key picker in a terminal; non-interactive
+omission selects only the newest Codex thread whose recorded workspace matches
+the current directory. Options after `--` are passed to Claude:
+
+```bash
+rebinder transfer THREAD_ID --from codex --to claude -- --model opus
+```
+
+Rebinder reads the Codex thread without resuming it, creates and validates a
+temporary canonical package, assesses Claude compatibility, and renders a
+bounded continuation artifact. It then starts a deterministic Claude session
+ID or resumes that same native session in the recorded workspace. The artifact
+is supplied through a private temporary context file and wrapped as untrusted
+historical data. The first response is asked to produce a visible continuation
+brief without tools; this consumes normal Claude model tokens.
+
+The artifact and activation marker use a semantic source revision. An
+unchanged repeat opens the existing Claude session without injecting the same
+history again. A changed conversation, task, workspace, or repository snapshot
+updates that session with one new bounded checkpoint. Rebinder-owned binding
+flags such as `--resume`, `--continue`, `--session-id`, `--name`, and
+`--worktree` are rejected after `--`; use the Rebinder session selection
+instead. `--strategy` remains specific to Claude-to-Codex transfer.
+
 ## Export canonical session packages
 
 Export a provider session into the seven-document interchange format:
@@ -235,9 +270,6 @@ attachments, environment values, and remote URLs are excluded; every active
 loss is reported before generation. Output files are created with private
 permissions on Unix and are never overwritten.
 
-Codex-to-Claude transfer remains unavailable and exits with code `2` rather
-than pretending an incompatible target artifact was created.
-
 ## What the MVP delivers
 
 | Boundary | Current behavior |
@@ -256,7 +288,7 @@ than pretending an incompatible target artifact was created.
 | Worktrees | Reuses an existing recorded worktree; missing workspace paths fail closed |
 | Compatibility | Declares Codex and Claude continuation capabilities and reports package-specific preserved, summarized, omitted, or blocking state in human/JSON form |
 | Continuation artifact | Produces bounded Markdown continuation state from a validated package without tool output, environment values, attachment payloads, or remote URLs |
-| Codex to Claude | Native target launch is not implemented yet; exits closed with code `2` |
+| Codex to Claude | Exports a bounded canonical checkpoint, creates or resumes a deterministic native Claude session, prevents duplicate revision injection, and opens it from Rebinder |
 
 The initial package format is documented in the
 [Interchange Format 0.1.0](docs/format/interchange-format-0.1.md) specification.
@@ -326,6 +358,14 @@ Canonical exports use the same sensitive-data boundary. Provider-private
 reasoning and payloads are excluded and provenance records redaction counts,
 but visible user and assistant text is intentionally portable and automated
 credential redaction is best effort rather than a substitute for review.
+
+Codex-to-Claude transfer writes its bounded artifact only to a private
+temporary file while Claude is open. The artifact is explicitly fenced as
+untrusted historical data before it is appended to Claude's invocation
+context. A short revision marker and Claude's visible continuation brief remain
+in the native target transcript. Review source conversation text because no
+prompt-injection boundary can make untrusted history equivalent to trusted
+instructions.
 
 ## License
 

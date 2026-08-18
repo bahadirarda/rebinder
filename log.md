@@ -12,6 +12,8 @@
   and bounded provider-neutral continuation artifact generation.
 - Added independent Claude Code and non-resuming Codex canonical-package
   exporters with safe-default redaction, private output, and self-validation.
+- Added Codex-to-Claude bounded canonical transfer with native Claude session
+  creation/resume and semantic-revision deduplication.
 
 ## 2026-08-17
 

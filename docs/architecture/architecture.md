@@ -67,6 +67,28 @@ Rebinder
     -> Rebinder opens the bound thread in the recorded Claude workspace
 ```
 
+The reverse direction composes the canonical pipeline with Claude's supported
+interactive CLI instead of writing its transcript store:
+
+```text
+Rebinder
+    -> Codex app-server thread/list + thread/read(includeTurns)
+    -> Canonical package export + validation
+    -> Claude compatibility report + bounded Markdown artifact
+    -> Semantic revision over portable source state
+    -> New: claude --session-id <stable UUID> <activation>
+       Changed: claude --resume <stable UUID> <activation>
+       Unchanged: claude --resume <stable UUID>
+    -> Native Claude session in the recorded Codex workspace
+```
+
+For new and changed revisions, the artifact is placed in a private temporary
+file and appended to the target invocation context. A security wrapper fences
+the package content as untrusted historical data. The short user activation
+prompt carries the source revision and asks for a visible no-tool continuation
+brief. A repeat is considered activated only when the native Claude transcript
+contains both the matching marker and a later visible assistant message.
+
 ## Core boundaries
 
 ### Core
@@ -142,6 +164,13 @@ reasoning, attachment bodies, environment values, remote URLs, and tool
 payloads do not cross the adapter boundary. Export creates a new package root
 and private files rather than modifying source sessions or replacing an
 existing package.
+
+The reverse module owns only target binding and launch. It derives a stable
+UUID from the source Codex thread, rejects target CLI flags that could replace
+that binding, and delegates all native transcript creation to Claude Code. Its
+staging directories are process-unique, private on Unix, and removed after
+preparation or after the interactive target exits. Missing recorded workspaces
+still fail closed before Claude starts.
 
 ## CLI command boundaries
 

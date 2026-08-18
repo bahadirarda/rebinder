@@ -111,6 +111,10 @@ store writes to supported target-provider APIs. Rebinder's initial
 Claude-to-Codex path uses Codex app-server external-agent discovery, native full
 import, and native thread APIs; it never writes Codex session files directly.
 
+The Codex-to-Claude bridge uses canonical export and a bounded continuation
+artifact, then delegates target creation and repeat resume to Claude Code's
+supported CLI. It never constructs or writes a Claude transcript itself.
+
 ## Recorded Workspace
 
 The working directory stored with the source session. It may be a repository

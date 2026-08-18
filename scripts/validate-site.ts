@@ -126,18 +126,18 @@ if (!/^# Rebinder\n\n>\s+\S+/m.test(llms)) {
 
 for (const requiredCopy of [
   "rebinder sessions claude",
+  "rebinder sessions codex",
   "rebinder transfer --from claude --to codex",
-  "rebinder transfer --from claude --to codex -- --search",
-  "context-safe handoff",
-  "one-way MVP live",
-  "missing worktrees",
+  "rebinder transfer --from codex --to claude",
+  "both directions live",
+  "private bounded checkpoint",
   "0.YYYYMMDD.REVISION",
   "Interchange Format 0.1.0",
 ]) {
   if (!index.includes(requiredCopy)) errors.push(`site/index.html: missing product truth ${requiredCopy}`);
 }
 
-if (!llms.includes("Claude-to-Codex transfer is operational")) {
+if (!llms.includes("Two-way transfer is operational")) {
   errors.push("site/llms.txt: transfer availability boundary is missing");
 }
 if (styles.length < 10_000) errors.push("site/styles.css: product stylesheet appears incomplete");

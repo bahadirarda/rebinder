@@ -6,7 +6,7 @@
     <title>Rebinder — Continue coding-agent sessions across harnesses</title>
     <meta
       name="description"
-      content="Rebinder is an open-source Rust CLI for native Claude-to-Codex continuity and non-resuming Claude or Codex canonical session export."
+      content="Rebinder is an open-source Rust CLI for two-way Claude Code and Codex continuity plus non-resuming canonical session export."
     >
     <meta
       name="keywords"
@@ -24,7 +24,7 @@
     <meta property="og:title" content="Rebinder — Leave the harness. Keep the thread.">
     <meta
       property="og:description"
-      content="Continue Claude work in Codex or export Claude and Codex sessions into validated canonical packages."
+      content="Continue Claude work in Codex, continue Codex work in Claude, or export either session into a validated canonical package."
     >
     <meta property="og:url" content="https://bahadirarda.github.io/rebinder/">
     <meta property="og:image" content="https://bahadirarda.github.io/rebinder/assets/rebinder-social-card.png">
@@ -36,7 +36,7 @@
     <meta name="twitter:title" content="Rebinder — Cross-harness session continuity">
     <meta
       name="twitter:description"
-      content="Continue a Claude Code session in Codex or export either provider into a validated canonical package."
+      content="Continue sessions between Claude Code and Codex in either direction, or export either provider into a validated canonical package."
     >
     <meta name="twitter:image" content="https://bahadirarda.github.io/rebinder/assets/rebinder-social-card.png">
 
@@ -58,7 +58,7 @@
             "name": "Rebinder",
             "applicationCategory": "DeveloperApplication",
             "operatingSystem": "Linux, macOS, Windows",
-            "description": "An open-source Rust CLI with context-safe Claude Code to Codex transfer, non-resuming canonical provider export, native command passthrough, and package validation.",
+            "description": "An open-source Rust CLI with context-safe two-way Claude Code and Codex transfer, non-resuming canonical provider export, native command passthrough, and package validation.",
             "url": "https://bahadirarda.github.io/rebinder/",
             "downloadUrl": "https://github.com/bahadirarda/rebinder/releases/latest",
             "installUrl": "https://bahadirarda.github.io/rebinder/install.sh",
@@ -116,8 +116,8 @@
             <p class="eyebrow"><span></span> Cross-harness session continuity</p>
             <h1>Leave the harness.<br><em>Keep the thread.</em></h1>
             <p class="hero-lede">
-              Rebinder moves a local Claude Code session into a native Codex thread, or exports a
-              Claude or Codex session into a validated canonical package without resuming it.
+              Rebinder moves local sessions between Claude Code and Codex in either direction, or
+              exports one into a validated canonical package without resuming it.
               Rebinder owns explicit selection, safe orchestration, and declared information loss.
             </p>
 
@@ -131,7 +131,7 @@
             <ul class="hero-proof">
               <li>Native Rust binary</li>
               <li>MIT licensed</li>
-              <li>2 canonical exporters</li>
+              <li>Two-way native transfer</li>
             </ul>
           </div>
 
@@ -157,9 +157,9 @@
               </div>
             </section>
             <div class="transfer-preview">
-              <div><span>02 / Cross-harness transfer</span><strong>one-way MVP live</strong></div>
-              <code>rebinder transfer --from claude --to codex -- --search</code>
-              <p>Auto preserves roles, creates one visible continuation brief, and missing worktrees fail closed.</p>
+              <div><span>02 / Cross-harness transfer</span><strong>both directions live</strong></div>
+              <code>rebinder transfer --from codex --to claude -- --model opus</code>
+              <p>Canonical checkpoints preserve visible roles, declare losses, and open a bound native target session. Missing-worktree reconstruction is the remaining roadmap boundary.</p>
             </div>
           </div>
         </div>
@@ -167,7 +167,7 @@
 
       <section class="status-strip" aria-label="Current Rebinder status">
         <div class="shell status-grid">
-          <div><strong>2</strong><span>canonical source adapters</span></div>
+          <div><strong>2</strong><span>live transfer directions</span></div>
           <div><strong>7</strong><span>canonical package documents</span></div>
           <div><strong>5</strong><span>native release targets</span></div>
           <div><strong>0.1.0</strong><span>interchange schema</span></div>
@@ -180,11 +180,10 @@
             <p class="section-index">01 / Use it today</p>
             <h2>Pick up the thread.<br>Change the harness.</h2>
             <p>
-              Discover a supported local Claude Code chat, choose it interactively, and continue
-              through Codex's native APIs in the recorded workspace. Small histories use native
-              import; large histories use a context-safe handoff with bounded, role-preserving
-              items and a visible continuation brief in a native Codex thread. No direct writes to
-              either provider's private session store.
+              Discover a supported local Claude Code or Codex session, choose it interactively,
+              and continue in the other harness. Each direction uses the target's supported APIs,
+              a bounded checkpoint where needed, and a visible continuation brief. No direct
+              writes to either provider's private session store.
             </p>
           </div>
 
@@ -201,6 +200,13 @@
               <h3>Continue natively in Codex.</h3>
               <div class="code-line"><code>rebinder transfer --from claude --to codex</code><button type="button" data-copy-value="rebinder transfer --from claude --to codex" aria-label="Copy interactive Claude to Codex transfer example">Copy</button></div>
               <p>Choose with arrow keys and Enter. Rebinder binds Codex, uses one read-only model turn to create a history-grounded continuation brief, and opens the thread itself.</p>
+            </article>
+
+            <article class="command-card command-card-cyan" data-reveal>
+              <div class="command-card-head"><span>Transfer</span><span>reverse</span></div>
+              <h3>Continue natively in Claude.</h3>
+              <div class="code-line"><code>rebinder transfer --from codex --to claude</code><button type="button" data-copy-value="rebinder transfer --from codex --to claude" aria-label="Copy interactive Codex to Claude transfer example">Copy</button></div>
+              <p>Use <code>rebinder sessions codex</code> to inspect sources, then render a private bounded checkpoint and create or resume its deterministic native Claude session.</p>
             </article>
 
             <article class="command-card command-card-blue" data-reveal>
@@ -246,7 +252,7 @@
             <li data-reveal>
               <span>04</span>
               <div><h3>Generate target state</h3><p>Use the target provider's supported importer instead of mutating private session files.</p></div>
-              <small>Codex live</small>
+              <small>Codex + Claude live</small>
             </li>
           </ol>
         </div>

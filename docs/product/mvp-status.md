@@ -37,6 +37,9 @@ README examples and release notes MUST preserve this distinction.
 - Codex thread discovery and non-resuming canonical export through the app-server
 - Safe-default provider-private payload, remote URL, and credential redaction provenance
 - Create-new private package output followed by schema and SHA-256 self-validation
+- Codex-to-Claude bounded canonical transfer through native Claude start/resume commands
+- Deterministic Claude target binding with semantic-revision deduplication
+- Private temporary Claude context files and explicit untrusted-history fencing
 - Calendar release identity `0.YYYYMMDD.REVISION`
 - Changesets release-intent ledger and automated version pull requests
 - Checksum-verifying Unix and Windows installers
@@ -100,7 +103,6 @@ to the current user.
 
 ## Pending MVP capabilities
 
-- End-to-end Codex-to-Claude transfer
 - Missing-worktree reconstruction
 
 No pending capability may be described as available in installation or release
