@@ -16,14 +16,16 @@ use thiserror::Error;
 
 use crate::handoff::{
     FULL_IMPORT_MAX_SOURCE_BYTES, HandoffMessage, HandoffMessageRole, completed_handoff_thread,
-    prepare_context_safe_handoff, recommended_handoff, record_completed_handoff_binding,
-    record_injected_handoff_binding, record_pending_handoff_binding, source_size,
+    prepare_context_safe_handoff, recommended_handoff, record_activating_handoff_binding,
+    record_completed_handoff_binding, record_injected_handoff_binding,
+    record_pending_handoff_binding, record_ready_handoff_binding, source_size,
 };
 
 const CLAUDE_CODE_SOURCE: &str = "claude-code";
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(180);
 const COMPACT_TIMEOUT: Duration = Duration::from_secs(180);
+const ACTIVATION_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// A Claude Code session that Codex can import or has already imported.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -70,6 +72,7 @@ pub struct PreparedCodexSession {
     pub codex_thread_id: String,
     pub imported: bool,
     pub compacted: bool,
+    pub activated: bool,
     pub strategy: ClaudeTransferStrategy,
     pub source_size_bytes: Option<u64>,
 }
@@ -114,6 +117,8 @@ pub enum TransferError {
     Handoff(String),
     #[error("Codex did not return a target thread ID")]
     MissingCodexThread,
+    #[error("Codex did not return a handoff activation turn ID")]
+    MissingCodexTurn,
     #[error("cannot launch Codex thread: {0}")]
     CodexLaunch(#[source] std::io::Error),
 }
@@ -164,19 +169,19 @@ pub fn prepare_claude_to_codex_with_strategy(
     };
     let source_size_bytes = selected.public.source_size_bytes;
 
-    let (codex_thread_id, imported, compacted) = match resolved_strategy {
+    let (codex_thread_id, imported, compacted, activated) = match resolved_strategy {
         ClaudeTransferStrategy::Auto => unreachable!("auto strategy must resolve before import"),
         ClaudeTransferStrategy::Full => {
             if let Some(migration_item) = selected.migration_item.as_ref() {
                 let thread_id =
                     app_server.import_session(migration_item, &selected.public.source_path)?;
-                (thread_id, true, false)
+                (thread_id, true, false, false)
             } else {
                 let thread_id = selected
                     .full_import_thread_id
                     .clone()
                     .ok_or(TransferError::MissingCodexThread)?;
-                (thread_id, false, false)
+                (thread_id, false, false, false)
             }
         }
         ClaudeTransferStrategy::Handoff => {
@@ -192,7 +197,7 @@ pub fn prepare_claude_to_codex_with_strategy(
                     .codex_thread_id
                     .clone()
                     .ok_or(TransferError::MissingCodexThread)?;
-                (thread_id, false, false)
+                (thread_id, false, false, false)
             } else {
                 let thread_id = if let Some(thread_id) = handoff.codex_thread_id.clone() {
                     app_server.resume_thread(&thread_id)?;
@@ -200,6 +205,8 @@ pub fn prepare_claude_to_codex_with_strategy(
                 } else {
                     app_server.start_thread(&selected.public.cwd)?
                 };
+                let history_was_ready =
+                    handoff.binding.injected() && !handoff.binding.requires_compaction();
                 if !handoff.binding.injected() {
                     record_pending_handoff_binding(&handoff, &thread_id)
                         .map_err(|error| TransferError::Handoff(error.to_string()))?;
@@ -213,9 +220,30 @@ pub fn prepare_claude_to_codex_with_strategy(
                 } else {
                     false
                 };
+                if !history_was_ready || compacted {
+                    record_ready_handoff_binding(&handoff, &thread_id)
+                        .map_err(|error| TransferError::Handoff(error.to_string()))?;
+                }
+                let activation_already_completed = if handoff.binding.activation_started() {
+                    app_server.handoff_activation_completed(&thread_id, &handoff.source_sha256)?
+                } else {
+                    false
+                };
+                let activated = if activation_already_completed {
+                    false
+                } else {
+                    record_activating_handoff_binding(&handoff, &thread_id)
+                        .map_err(|error| TransferError::Handoff(error.to_string()))?;
+                    app_server.activate_handoff(
+                        &thread_id,
+                        &selected.public.cwd,
+                        &handoff.source_sha256,
+                    )?;
+                    true
+                };
                 record_completed_handoff_binding(&handoff, &thread_id)
                     .map_err(|error| TransferError::Handoff(error.to_string()))?;
-                (thread_id, true, compacted)
+                (thread_id, true, compacted, activated)
             }
         }
     };
@@ -227,6 +255,7 @@ pub fn prepare_claude_to_codex_with_strategy(
         codex_thread_id,
         imported,
         compacted,
+        activated,
         strategy: resolved_strategy,
         source_size_bytes,
     })
@@ -798,6 +827,96 @@ impl CodexAppServer {
         })
     }
 
+    fn handoff_activation_completed(
+        &mut self,
+        thread_id: &str,
+        source_sha256: &str,
+    ) -> Result<bool, TransferError> {
+        let result = self.request(
+            8,
+            "thread/read",
+            json!({
+                "threadId": thread_id,
+                "includeTurns": true
+            }),
+            RPC_TIMEOUT,
+            "handoff activation recovery",
+        )?;
+        let marker = handoff_activation_marker(source_sha256);
+        Ok(result
+            .pointer("/thread/turns")
+            .and_then(Value::as_array)
+            .is_some_and(|turns| {
+                turns.iter().any(|turn| {
+                    turn.get("status").and_then(Value::as_str) == Some("completed")
+                        && turn_contains_activation_marker(turn, &marker)
+                        && turn_has_visible_agent_message(turn)
+                })
+            }))
+    }
+
+    fn activate_handoff(
+        &mut self,
+        thread_id: &str,
+        cwd: &Path,
+        source_sha256: &str,
+    ) -> Result<(), TransferError> {
+        let response = self.request(
+            9,
+            "turn/start",
+            json!({
+                "threadId": thread_id,
+                "input": [{
+                    "type": "text",
+                    "text": handoff_activation_prompt(source_sha256)
+                }],
+                "cwd": cwd,
+                "approvalPolicy": "never",
+                "sandboxPolicy": { "type": "readOnly" }
+            }),
+            RPC_TIMEOUT,
+            "handoff continuity activation start",
+        )?;
+        let turn_id = response
+            .pointer("/turn/id")
+            .and_then(Value::as_str)
+            .ok_or(TransferError::MissingCodexTurn)?
+            .to_owned();
+        let completed = self.receive_matching(
+            |message| {
+                message.get("method").and_then(Value::as_str) == Some("turn/completed")
+                    && message.pointer("/params/threadId").and_then(Value::as_str)
+                        == Some(thread_id)
+                    && message.pointer("/params/turn/id").and_then(Value::as_str)
+                        == Some(turn_id.as_str())
+            },
+            ACTIVATION_TIMEOUT,
+            "handoff continuity activation completion",
+        )?;
+        if completed
+            .pointer("/params/turn/status")
+            .and_then(Value::as_str)
+            == Some("completed")
+        {
+            return if completed
+                .pointer("/params/turn")
+                .is_some_and(turn_has_visible_agent_message)
+            {
+                Ok(())
+            } else {
+                Err(TransferError::AppServerRejected {
+                    operation: "handoff continuity activation",
+                    message: "Codex completed without a visible continuation brief".to_owned(),
+                })
+            };
+        }
+        let message = turn_failure_message(&completed, "Codex handoff activation did not complete");
+        Err(TransferError::AppServerRejected {
+            operation: "handoff continuity activation",
+            message,
+        })
+    }
+
     fn import_session(
         &mut self,
         migration_item: &Value,
@@ -924,6 +1043,69 @@ impl CodexAppServer {
             }
         }
     }
+}
+
+fn handoff_activation_marker(source_sha256: &str) -> String {
+    format!("Rebinder handoff revision: {source_sha256}")
+}
+
+fn handoff_activation_prompt(source_sha256: &str) -> String {
+    format!(
+        "Rebinder continuity activation. Using only the historical Claude Code context already present in this thread, write a concise continuation brief covering the current objective, verified state, important decisions, and the next concrete action. Do not call tools or modify files. If context is insufficient, state exactly what is missing.\n\n{}",
+        handoff_activation_marker(source_sha256)
+    )
+}
+
+fn turn_contains_activation_marker(turn: &Value, marker: &str) -> bool {
+    turn.get("items")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("userMessage")
+                    && item
+                        .get("content")
+                        .and_then(Value::as_array)
+                        .is_some_and(|content| {
+                            content.iter().any(|part| {
+                                part.get("text")
+                                    .and_then(Value::as_str)
+                                    .is_some_and(|text| text.contains(marker))
+                            })
+                        })
+            })
+        })
+}
+
+fn turn_has_visible_agent_message(turn: &Value) -> bool {
+    turn.get("items")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("agentMessage")
+                    && item
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .is_some_and(|text| !text.trim().is_empty())
+            })
+        })
+}
+
+fn turn_failure_message(completed: &Value, fallback: &str) -> String {
+    completed
+        .pointer("/params/turn/error/message")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            completed
+                .pointer("/params/turn/error/additionalDetails")
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            completed
+                .pointer("/params/turn/status")
+                .and_then(Value::as_str)
+        })
+        .unwrap_or(fallback)
+        .to_owned()
 }
 
 impl Drop for CodexAppServer {
@@ -1244,5 +1426,30 @@ mod tests {
             imported_thread_from_completion(&completed, Path::new("/tmp/1234.jsonl")),
             Some("019c-thread".to_owned())
         );
+    }
+
+    #[test]
+    fn activation_recovery_requires_the_matching_user_marker() {
+        let marker = handoff_activation_marker("source-hash");
+        let turn = json!({
+            "status": "completed",
+            "items": [
+                {
+                    "type": "userMessage",
+                    "content": [{ "type": "text", "text": handoff_activation_prompt("source-hash") }]
+                },
+                {
+                    "type": "agentMessage",
+                    "text": "Continue from the verified parser state."
+                }
+            ]
+        });
+
+        assert!(turn_contains_activation_marker(&turn, &marker));
+        assert!(turn_has_visible_agent_message(&turn));
+        assert!(!turn_contains_activation_marker(
+            &turn,
+            &handoff_activation_marker("different-hash")
+        ));
     }
 }

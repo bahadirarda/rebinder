@@ -118,7 +118,7 @@
             <p class="hero-lede">
               Rebinder moves a local Claude Code session into a native Codex thread, then opens it
               in the workspace or Git worktree where the work happened. Codex owns the conversion;
-              Rebinder owns explicit selection, safe orchestration, and the handoff boundary.
+              Rebinder owns explicit selection, safe orchestration, and a visible continuation brief.
             </p>
 
             <div class="hero-actions">
@@ -153,13 +153,13 @@
               <div class="terminal-body">
                 <p><span class="prompt">$</span> rebinder transfer --from claude --to codex</p>
                 <p class="terminal-muted">pick with arrows; Rebinder handles the bound Codex thread</p>
-                <p class="terminal-result"><span>●</span> native Codex thread opened</p>
+                <p class="terminal-result"><span>●</span> context recalled; native thread opened</p>
               </div>
             </section>
             <div class="transfer-preview">
               <div><span>02 / Cross-harness transfer</span><strong>one-way MVP live</strong></div>
               <code>rebinder transfer --from claude --to codex -- --search</code>
-              <p>Auto preserves roles, meaningful updates compact natively, and missing worktrees fail closed.</p>
+              <p>Auto preserves roles, creates one visible continuation brief, and missing worktrees fail closed.</p>
             </div>
           </div>
         </div>
@@ -183,7 +183,8 @@
               Discover a supported local Claude Code chat, choose it interactively, and continue
               through Codex's native APIs in the recorded workspace. Small histories use native
               import; large histories use a context-safe handoff with bounded, role-preserving
-              items in a native Codex thread. No direct writes to either provider's private session store.
+              items and a visible continuation brief in a native Codex thread. No direct writes to
+              either provider's private session store.
             </p>
           </div>
 
@@ -199,7 +200,7 @@
               <div class="command-card-head"><span>Transfer</span><span>interactive</span></div>
               <h3>Continue natively in Codex.</h3>
               <div class="code-line"><code>rebinder transfer --from claude --to codex</code><button type="button" data-copy-value="rebinder transfer --from claude --to codex" aria-label="Copy interactive Claude to Codex transfer example">Copy</button></div>
-              <p>Choose with arrow keys and Enter. Rebinder binds and opens Codex itself; large-chat updates are compacted natively before opening.</p>
+              <p>Choose with arrow keys and Enter. Rebinder binds Codex, uses one read-only model turn to create a history-grounded continuation brief, and opens the thread itself.</p>
             </article>
           </div>
         </div>

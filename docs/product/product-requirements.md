@@ -56,11 +56,12 @@ The first operational direction MUST discover local Claude Code sessions
 through Codex's supported external-agent API. A full transfer MUST import only
 the selected session. A context-safe handoff MUST create or resume a native
 Codex thread and inject the bounded checkpoint through supported Codex thread
-APIs. Both paths MUST obtain the target thread ID and open that thread from
-Rebinder in the source session's recorded workspace; a separate user-issued
-Codex resume command MUST NOT be required. Rebinder MUST NOT directly mutate
-provider session stores or import credentials and configuration as a side
-effect.
+APIs. A bounded handoff MUST create a visible, history-grounded continuation
+brief before opening the target. Both paths MUST obtain the target thread ID
+and open that thread from Rebinder in the source session's recorded workspace;
+a separate user-issued Codex resume command MUST NOT be required. Rebinder MUST
+NOT directly mutate provider session stores or import credentials and
+configuration as a side effect.
 
 When the source transcript has changed since a prior transfer, the bridge MUST
 use the target provider's checkpoint behavior rather than create an unrelated
@@ -93,6 +94,15 @@ metadata-only changes MUST NOT create a new checkpoint. A meaningful changed
 source MUST append and inject one new bounded checkpoint into that thread, then
 complete target-native compaction before Codex opens. If compaction fails after
 injection, a retry MUST NOT inject the same checkpoint again.
+
+Each new semantic handoff revision MUST start at most one activation turn that
+summarizes the current objective, verified state, important decisions, and next
+action for visible target-native continuation. Activation MUST use read-only
+sandboxing, disable approval escalation, and instruct the model not to call
+tools or modify files. The CLI and security documentation MUST disclose that
+activation consumes target-model tokens. If activation finishes before its
+ledger completion record is persisted, a retry MUST detect the matching
+completed turn and MUST NOT create a duplicate brief.
 
 ## Quality requirements
 

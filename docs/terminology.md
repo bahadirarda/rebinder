@@ -134,6 +134,15 @@ exhausting the target context window. Meaningful repeat updates are compacted
 before the target opens. The handoff is an implementation strategy inside a
 cross-harness transfer, not a synonym for the transfer itself.
 
+## Continuity Activation
+
+The single target-model turn that follows a new bounded handoff revision. It
+uses only the injected source history to create a visible continuation brief
+with the current objective, verified state, decisions, and next action.
+Rebinder starts it with read-only sandboxing and no approval escalation, marks
+it with the source semantic revision for retry recovery, and does not repeat it
+for an unchanged revision.
+
 ## Provenance
 
 Information describing the entities, activities, agents, tools, and transformations involved in producing session data.

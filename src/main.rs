@@ -224,6 +224,11 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
         if prepared.compacted {
             eprintln!("rebinder: compacted the updated handoff before opening Codex");
         }
+        if prepared.activated {
+            eprintln!(
+                "rebinder: activated the transferred context with a visible continuation brief"
+            );
+        }
     }
     eprintln!("rebinder: opening Codex in {}", prepared.cwd.display());
 

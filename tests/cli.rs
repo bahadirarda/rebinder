@@ -211,6 +211,7 @@ fn context_safe_handoff_bounds_history_and_resumes_the_derived_thread() {
     let arguments_log = fixture.path().join("resume-arguments.txt");
     let thread_log = fixture.path().join("thread-requests.txt");
     let injection_log = fixture.path().join("injections.txt");
+    let activation_log = fixture.path().join("activations.txt");
 
     let source_json = serde_json::to_string(source_path.to_str().expect("UTF-8 source path"))
         .expect("encode source path");
@@ -246,6 +247,20 @@ if [ "$1" = "app-server" ]; then
         else
           printf '%s\n' '{{"method":"turn/completed","params":{{"threadId":"019c0000-0000-7000-8000-000000000002","turn":{{"id":"compact-turn","status":"completed","items":[],"error":null}}}}}}'
         fi
+        ;;
+      *'"method":"thread/read"'*)
+        if [ -n "$FAKE_CODEX_RECOVER_ACTIVATION" ]; then
+          printf '%s\n' recover >> "$FAKE_CODEX_THREAD_LOG"
+          printf '{{"id":8,"result":{{"thread":{{"id":"019c0000-0000-7000-8000-000000000002","turns":[{{"status":"completed","items":[{{"type":"userMessage","content":[{{"type":"text","text":"Rebinder handoff revision: %s"}}]}},{{"type":"agentMessage","text":"Recovered continuation brief"}}]}}]}}}}}}\n' "$FAKE_CODEX_RECOVER_ACTIVATION"
+        else
+          printf '%s\n' '{{"id":8,"result":{{"thread":{{"id":"019c0000-0000-7000-8000-000000000002","turns":[]}}}}}}'
+        fi
+        ;;
+      *'"method":"turn/start"'*)
+        printf '%s\n' activate >> "$FAKE_CODEX_THREAD_LOG"
+        printf '%s\n' "$line" >> "$FAKE_CODEX_ACTIVATION_LOG"
+        printf '%s\n' '{{"id":9,"result":{{"turn":{{"id":"activation-turn","status":"inProgress","items":[]}}}}}}'
+        printf '%s\n' '{{"method":"turn/completed","params":{{"threadId":"019c0000-0000-7000-8000-000000000002","turn":{{"id":"activation-turn","status":"completed","items":[{{"type":"agentMessage","id":"activation-message","text":"Visible continuation brief"}}],"error":null}}}}}}'
         ;;
       *'"method":"externalAgentConfig/import"'*)
         printf '%s\n' '{{"id":3,"error":{{"message":"handoffs must not use external import"}}}}'
@@ -285,6 +300,7 @@ exit 64
         .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
         .env("FAKE_CODEX_THREAD_LOG", &thread_log)
         .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
+        .env("FAKE_CODEX_ACTIVATION_LOG", &activation_log)
         .output()
         .expect("run context-safe transfer");
 
@@ -313,7 +329,7 @@ exit 64
     assert!(String::from_utf8_lossy(&output.stderr).contains("context-safe Codex thread"));
     assert_eq!(
         fs::read_to_string(&thread_log).expect("read thread request log"),
-        "start\ninject\n"
+        "start\ninject\nactivate\n"
     );
     let injection = fs::read_to_string(&injection_log).expect("read injection log");
     assert!(injection.contains("verified compact state"));
@@ -324,6 +340,12 @@ exit 64
     assert!(injection.contains("\"type\":\"output_text\""));
     assert!(!injection.contains("obsolete request"));
     assert!(!injection.contains("private tool output"));
+    let activation = fs::read_to_string(&activation_log).expect("read activation log");
+    assert!(activation.contains("Rebinder continuity activation"));
+    assert!(activation.contains("Rebinder handoff revision:"));
+    assert!(activation.contains("\"approvalPolicy\":\"never\""));
+    assert!(activation.contains("\"sandboxPolicy\":{\"type\":\"readOnly\"}"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("visible continuation brief"));
 
     let repeated = Command::new(env!("CARGO_BIN_EXE_rebinder"))
         .args([
@@ -342,6 +364,7 @@ exit 64
         .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
         .env("FAKE_CODEX_THREAD_LOG", &thread_log)
         .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
+        .env("FAKE_CODEX_ACTIVATION_LOG", &activation_log)
         .output()
         .expect("repeat context-safe transfer");
     assert!(
@@ -352,14 +375,14 @@ exit 64
     assert!(String::from_utf8_lossy(&repeated.stderr).contains("reusing"));
     assert_eq!(
         fs::read_to_string(&thread_log).expect("read repeated thread log"),
-        "start\ninject\n"
+        "start\ninject\nactivate\n"
     );
     assert_eq!(
         fs::read_to_string(&handoff_path)
             .expect("read repeated handoff")
             .lines()
             .count(),
-        5
+        7
     );
 
     fs::OpenOptions::new()
@@ -385,6 +408,7 @@ exit 64
         .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
         .env("FAKE_CODEX_THREAD_LOG", &thread_log)
         .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
+        .env("FAKE_CODEX_ACTIVATION_LOG", &activation_log)
         .output()
         .expect("repeat after irrelevant source metadata");
     assert!(
@@ -394,14 +418,14 @@ exit 64
     );
     assert_eq!(
         fs::read_to_string(&thread_log).expect("read metadata-only thread log"),
-        "start\ninject\n"
+        "start\ninject\nactivate\n"
     );
     assert_eq!(
         fs::read_to_string(&handoff_path)
             .expect("read metadata-only handoff")
             .lines()
             .count(),
-        5
+        7
     );
 
     fs::OpenOptions::new()
@@ -427,6 +451,7 @@ exit 64
         .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
         .env("FAKE_CODEX_THREAD_LOG", &thread_log)
         .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
+        .env("FAKE_CODEX_ACTIVATION_LOG", &activation_log)
         .output()
         .expect("transfer changed context-safe source");
     assert!(
@@ -436,14 +461,14 @@ exit 64
     );
     assert_eq!(
         fs::read_to_string(&thread_log).expect("read changed thread log"),
-        "start\ninject\nresume\ninject\ncompact\n"
+        "start\ninject\nactivate\nresume\ninject\ncompact\nactivate\n"
     );
     assert_eq!(
         fs::read_to_string(&handoff_path)
             .expect("read changed handoff")
             .lines()
             .count(),
-        9
+        13
     );
     assert!(
         String::from_utf8_lossy(&changed.stderr)
@@ -474,6 +499,7 @@ exit 64
         .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
         .env("FAKE_CODEX_THREAD_LOG", &thread_log)
         .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
+        .env("FAKE_CODEX_ACTIVATION_LOG", &activation_log)
         .env("FAKE_CODEX_COMPACT_FAIL_ONCE", &compact_marker)
         .output()
         .expect("run failed compact fixture");
@@ -484,7 +510,7 @@ exit 64
             .expect("read handoff after failed compact")
             .lines()
             .count(),
-        12
+        16
     );
 
     let retried = Command::new(env!("CARGO_BIN_EXE_rebinder"))
@@ -504,6 +530,7 @@ exit 64
         .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
         .env("FAKE_CODEX_THREAD_LOG", &thread_log)
         .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
+        .env("FAKE_CODEX_ACTIVATION_LOG", &activation_log)
         .env("FAKE_CODEX_COMPACT_FAIL_ONCE", &compact_marker)
         .output()
         .expect("retry compact fixture");
@@ -514,13 +541,89 @@ exit 64
     );
     assert_eq!(
         fs::read_to_string(&thread_log).expect("read retry-safe thread log"),
-        "start\ninject\nresume\ninject\ncompact\nresume\ninject\ncompact\nresume\ncompact\n"
+        "start\ninject\nactivate\nresume\ninject\ncompact\nactivate\nresume\ninject\ncompact\nresume\ncompact\nactivate\n"
     );
     assert_eq!(
         fs::read_to_string(&handoff_path)
             .expect("read handoff after compact retry")
             .lines()
             .count(),
-        13
+        19
+    );
+
+    let handoff = fs::read_to_string(&handoff_path).expect("read activation recovery handoff");
+    let recovery_hash = handoff
+        .lines()
+        .rev()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find_map(|record| {
+            (record["type"] == "user")
+                .then(|| record["rebinderSourceSha256"].as_str().map(str::to_owned))
+                .flatten()
+        })
+        .expect("latest handoff source hash");
+    let mut handoff_file = fs::OpenOptions::new()
+        .append(true)
+        .open(&handoff_path)
+        .expect("open handoff for activation recovery fixture");
+    writeln!(
+        handoff_file,
+        "{}",
+        serde_json::json!({
+            "type": "rebinder-binding",
+            "rebinderSourceSha256": recovery_hash,
+            "rebinderFormatVersion": 2,
+            "codexThreadId": "019c0000-0000-7000-8000-000000000002",
+            "status": "activating",
+            "requiresCompaction": false,
+            "rebinderActivationVersion": 0
+        })
+    )
+    .expect("append activation recovery fixture");
+    let recovered = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "transfer",
+            "--from",
+            "claude",
+            "--to",
+            "codex",
+            session_id,
+            "--strategy",
+            "handoff",
+        ])
+        .current_dir(&workspace)
+        .env("PATH", &bin_directory)
+        .env("XDG_DATA_HOME", &data_directory)
+        .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
+        .env("FAKE_CODEX_THREAD_LOG", &thread_log)
+        .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
+        .env("FAKE_CODEX_ACTIVATION_LOG", &activation_log)
+        .env("FAKE_CODEX_RECOVER_ACTIVATION", &recovery_hash)
+        .output()
+        .expect("recover completed activation");
+    assert!(
+        recovered.status.success(),
+        "activation recovery failed: {}",
+        String::from_utf8_lossy(&recovered.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&recovered.stderr).contains("visible continuation brief"));
+    assert_eq!(
+        fs::read_to_string(&activation_log)
+            .expect("read recovered activation log")
+            .lines()
+            .count(),
+        3
+    );
+    assert!(
+        fs::read_to_string(&thread_log)
+            .expect("read recovered thread log")
+            .ends_with("resume\nrecover\n")
+    );
+    assert_eq!(
+        fs::read_to_string(&handoff_path)
+            .expect("read recovered handoff")
+            .lines()
+            .count(),
+        21
     );
 }

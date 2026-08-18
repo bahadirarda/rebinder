@@ -25,7 +25,8 @@ README examples and release notes MUST preserve this distinction.
 - Exact Claude session selection and current-workspace latest-session selection
 - Claude-to-Codex native full import and bounded native-thread handoff paths
 - Role-preserving handoff injection and semantic checkpoint revisions
-- Retry-safe injection/compaction ledger and native repeat-update compaction
+- Visible, history-grounded continuation briefs for bounded handoffs
+- Retry-safe injection/compaction/activation ledger and native repeat-update compaction
 - Rebinder-owned Codex opening in the Claude session's recorded workspace or worktree
 - Fail-closed handling for missing workspaces and unsupported directions
 - Human and JSON session inventory output
@@ -57,8 +58,12 @@ an append-only, context-safe handoff built from the latest compact summary and
 bounded recent visible messages. Injection retains user and assistant roles.
 Semantic revisions ignore unrelated source metadata changes; meaningful repeat
 updates are compacted through Codex before Rebinder opens the existing thread.
-This keeps prior oversized imports intact while creating or reusing a separate
-native Codex thread.
+For every new semantic revision, Rebinder starts one read-only Codex turn that
+creates a visible continuation brief from the injected context. The turn cannot
+write through its read-only sandbox and is instructed not to call tools. It
+consumes normal Codex model tokens and is recovered rather than duplicated
+after an interrupted ledger write. This keeps prior oversized imports intact
+while creating or reusing a separate native Codex thread.
 
 The role-preserving handoff format does not append onto a legacy flattened
 handoff thread. Rebinder leaves that thread intact, creates one clean bounded
@@ -67,7 +72,8 @@ thread during the upgrade, and reuses the new binding afterward.
 Rebinder never edits Claude transcript files or writes directly into Codex's
 private session store. It stores bounded handoff input and its retry-safe
 binding in its own platform data directory; Codex owns native thread creation,
-history injection, compaction, full-import conversion, and session persistence.
+history injection, activation, compaction, full-import conversion, and session
+persistence.
 
 ## Pending MVP capabilities
 

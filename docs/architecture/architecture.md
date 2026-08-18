@@ -35,6 +35,8 @@ Rebinder
        Handoff: Codex app-server thread/start or thread/resume
                 -> thread/inject_items with role-preserved bounded items
                 -> thread/compact/start for a meaningful repeat update
+                -> turn/start for a read-only visible continuation brief
+                -> thread/read only to recover an interrupted activation
     -> Native Codex thread ID
     -> Rebinder opens the bound thread in the recorded Claude workspace
 ```
@@ -90,8 +92,13 @@ Claude message text and compact-summary records into a bounded Rebinder-owned
 handoff, preserves user and assistant roles in injected response items, and
 uses a semantic hash so metadata-only source churn does not create another
 checkpoint. A meaningful update to an existing handoff thread is compacted
-through Codex before Rebinder opens it. Neither path writes Codex session files
-directly.
+through Codex before Rebinder starts one read-only, no-tool activation turn.
+That turn converts the injected prompt history into a visible continuation
+brief containing the objective, verified state, decisions, and next action.
+The append-only binding ledger records `pending`, `injected`, `ready`,
+`activating`, and `completed` phases. If the final ledger write is interrupted,
+`thread/read` locates the completed turn by its semantic-revision marker rather
+than producing a duplicate. Neither path writes Codex session files directly.
 
 ## CLI command boundaries
 
