@@ -12,6 +12,12 @@ const packageMetadata = JSON.parse(await readFile("package.json", "utf8")) as {
   version?: string;
   private?: boolean;
 };
+const claudePluginMetadata = JSON.parse(
+  await readFile(
+    "integrations/claude-code/rebinder-continuity/.claude-plugin/plugin.json",
+    "utf8",
+  ),
+) as { name?: string; version?: string; metadata?: { releaseIdentity?: string } };
 const cargoLock = Bun.TOML.parse(await readFile("Cargo.lock", "utf8")) as {
   package?: Array<{ name?: string; version?: string; source?: string }>;
 };
@@ -30,6 +36,13 @@ if (
   || packageMetadata.version !== version
 ) {
   errors.push("package.json must be the synchronized private Rebinder release proxy");
+}
+if (
+  claudePluginMetadata.name !== "rebinder-continuity"
+  || claudePluginMetadata.version !== version
+  || claudePluginMetadata.metadata?.releaseIdentity !== "CalVer 0.YYYYMMDD.REVISION"
+) {
+  errors.push("Claude Code plugin must use the synchronized Rebinder calendar identity");
 }
 
 const lockPackage = cargoLock.package?.find(
@@ -77,6 +90,8 @@ for (const path of [
   "site/install.sh",
   "site/install.ps1",
   "docs/assets/rebinder-hero.png",
+  "integrations/claude-code/rebinder-continuity/hooks/hooks.json",
+  "integrations/claude-code/rebinder-continuity/skills/handoff/SKILL.md",
 ]) {
   if (!(await Bun.file(path).exists())) errors.push(`${path} is required`);
 }

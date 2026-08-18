@@ -157,6 +157,388 @@ fn artifact_command_writes_once_without_tool_result_payloads() {
     assert!(String::from_utf8_lossy(&repeated.stderr).contains("already exists"));
 }
 
+#[cfg(unix)]
+#[test]
+fn claude_continuity_plugin_offers_one_consent_gated_weekly_handoff() {
+    use std::{
+        fs,
+        io::Write,
+        os::unix::fs::PermissionsExt,
+        process::{Command, Stdio},
+    };
+
+    let fixture = tempfile::tempdir().expect("create continuity fixture");
+    let claude_config = fixture.path().join("claude");
+    let data = fixture.path().join("data");
+    let workspace = fixture.path().join("workspace");
+    let bin = fixture.path().join("bin");
+    fs::create_dir_all(&claude_config).expect("create Claude config");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::create_dir_all(&bin).expect("create fake bin");
+    fs::write(
+        claude_config.join("settings.json"),
+        r#"{"statusLine":{"type":"command","command":"printf 'existing status'","padding":2},"theme":"dark"}"#,
+    )
+    .expect("write existing Claude settings");
+    let codex = bin.join("codex");
+    fs::write(
+        &codex,
+        "#!/bin/sh\n[ \"$1\" = login ] && [ \"$2\" = status ] && exit 0\nexit 64\n",
+    )
+    .expect("write fake Codex");
+    let mut permissions = fs::metadata(&codex)
+        .expect("read fake Codex metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&codex, permissions).expect("make fake Codex executable");
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let enabled = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args(["continuity", "enable", "claude", "--to", "codex"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("enable Claude continuity");
+    assert!(
+        enabled.status.success(),
+        "enable failed: {}",
+        String::from_utf8_lossy(&enabled.stderr)
+    );
+    let settings: serde_json::Value = serde_json::from_slice(
+        &fs::read(claude_config.join("settings.json")).expect("read wrapped settings"),
+    )
+    .expect("decode wrapped settings");
+    assert_eq!(
+        settings["statusLine"]["command"],
+        "rebinder continuity observe"
+    );
+    assert_eq!(settings["statusLine"]["padding"], 2);
+    assert_eq!(settings["theme"], "dark");
+    let plugin = claude_config.join("skills/rebinder-continuity");
+    assert!(plugin.join("hooks/hooks.json").is_file());
+    assert!(plugin.join("skills/handoff/SKILL.md").is_file());
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &fs::read(plugin.join(".claude-plugin/plugin.json")).expect("read plugin manifest"),
+    )
+    .expect("decode plugin manifest");
+    assert_eq!(manifest["name"], "rebinder-continuity");
+    assert_eq!(manifest["version"], env!("CARGO_PKG_VERSION"));
+
+    let statusline_input = serde_json::json!({
+        "session_id": "claude-session-1",
+        "cwd": workspace,
+        "transcript_path": fixture.path().join("claude-session-1.jsonl"),
+        "rate_limits": {
+            "five_hour": { "used_percentage": 40.0, "resets_at": u64::MAX - 1 },
+            "seven_day": { "used_percentage": 86.0, "resets_at": u64::MAX }
+        }
+    });
+    let mut observer = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args(["continuity", "observe"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .env("REBINDER_LAUNCH_ID", "launch-1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start continuity observer");
+    observer
+        .stdin
+        .take()
+        .expect("observer stdin")
+        .write_all(statusline_input.to_string().as_bytes())
+        .expect("write status-line input");
+    let observer_output = observer.wait_with_output().expect("wait for observer");
+    assert!(
+        observer_output.status.success(),
+        "observer failed: {}",
+        String::from_utf8_lossy(&observer_output.stderr)
+    );
+    let rendered = String::from_utf8_lossy(&observer_output.stdout);
+    assert!(
+        rendered.contains("existing status"),
+        "unexpected status line: {rendered}; stderr: {}",
+        String::from_utf8_lossy(&observer_output.stderr)
+    );
+    assert!(
+        rendered.contains("7-day usage 86%"),
+        "unexpected status line: {rendered}"
+    );
+
+    let status = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args(["continuity", "status", "--json"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("read continuity status");
+    assert!(status.status.success());
+    let status: serde_json::Value =
+        serde_json::from_slice(&status.stdout).expect("decode continuity status");
+    assert_eq!(status["enabled"], true);
+    assert_eq!(
+        status["latestObservation"]["sevenDay"]["usedPercentage"],
+        86.0
+    );
+    assert_eq!(status["offers"].as_array().map(Vec::len), Some(1));
+    assert_eq!(status["offers"][0]["state"], "ready");
+    let offer_id = status["offers"][0]["id"]
+        .as_str()
+        .expect("offer ID")
+        .to_owned();
+
+    let hook_input = serde_json::json!({
+        "session_id": "claude-session-1",
+        "cwd": workspace,
+        "hook_event_name": "UserPromptSubmit"
+    });
+    let mut hook = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args(["continuity", "hook"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .env("REBINDER_LAUNCH_ID", "launch-1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("start continuity hook");
+    hook.stdin
+        .take()
+        .expect("hook stdin")
+        .write_all(hook_input.to_string().as_bytes())
+        .expect("write hook input");
+    let hook = hook.wait_with_output().expect("wait for hook");
+    assert!(hook.status.success());
+    let hook: serde_json::Value = serde_json::from_slice(&hook.stdout).expect("decode hook output");
+    assert_eq!(
+        hook["hookSpecificOutput"]["hookEventName"],
+        "UserPromptSubmit"
+    );
+    let context = hook["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .expect("hook context");
+    assert!(context.contains("User authorization is required"));
+    assert!(context.contains(&offer_id));
+
+    let repeated_hook = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args(["continuity", "hook"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            child
+                .stdin
+                .take()
+                .expect("repeated hook stdin")
+                .write_all(hook_input.to_string().as_bytes())?;
+            child.wait_with_output()
+        })
+        .expect("repeat continuity hook");
+    assert!(repeated_hook.status.success());
+    assert!(repeated_hook.stdout.is_empty());
+
+    let accepted = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args(["continuity", "accept", "--offer", &offer_id])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("accept continuity offer");
+    assert!(accepted.status.success());
+    assert!(String::from_utf8_lossy(&accepted.stdout).contains("enter `/exit`"));
+
+    let settings_path = claude_config.join("settings.json");
+    let mut changed_settings: serde_json::Value = serde_json::from_slice(
+        &fs::read(&settings_path).expect("read settings before ownership test"),
+    )
+    .expect("decode settings before ownership test");
+    changed_settings["statusLine"]["padding"] = serde_json::json!(3);
+    fs::write(
+        &settings_path,
+        serde_json::to_vec_pretty(&changed_settings).expect("encode changed settings"),
+    )
+    .expect("change status-line ownership");
+    let refused_disable = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args(["continuity", "disable", "claude"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("refuse changed Claude status line");
+    assert_eq!(refused_disable.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&refused_disable.stderr).contains("statusLine changed"));
+    assert!(plugin.exists());
+    changed_settings["statusLine"]["padding"] = serde_json::json!(2);
+    fs::write(
+        &settings_path,
+        serde_json::to_vec_pretty(&changed_settings).expect("encode restored wrapper"),
+    )
+    .expect("restore managed wrapper");
+
+    let disabled = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args(["continuity", "disable", "claude"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("disable Claude continuity");
+    assert!(
+        disabled.status.success(),
+        "disable failed: {}",
+        String::from_utf8_lossy(&disabled.stderr)
+    );
+    let restored: serde_json::Value = serde_json::from_slice(
+        &fs::read(claude_config.join("settings.json")).expect("read restored settings"),
+    )
+    .expect("decode restored settings");
+    assert_eq!(
+        restored["statusLine"]["command"],
+        "printf 'existing status'"
+    );
+    assert_eq!(restored["statusLine"]["padding"], 2);
+    assert_eq!(restored["theme"], "dark");
+    assert!(!plugin.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn rebinder_claude_opens_codex_after_an_accepted_continuity_exit() {
+    use std::{fs, os::unix::fs::PermissionsExt};
+
+    let fixture = tempfile::tempdir().expect("create automatic continuity fixture");
+    let bin = fixture.path().join("bin");
+    let claude_config = fixture.path().join("claude");
+    let data = fixture.path().join("data");
+    let workspace = fixture.path().join("workspace");
+    let sessions = fixture.path().join("sessions");
+    fs::create_dir_all(&bin).expect("create fake bin");
+    fs::create_dir_all(&claude_config).expect("create Claude config");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::create_dir_all(&sessions).expect("create session store");
+    let session_id = "99999999-8888-7777-6666-555555555555";
+    let source = sessions.join(format!("{session_id}.jsonl"));
+    fs::write(
+        &source,
+        format!(
+            "{{\"type\":\"user\",\"sessionId\":\"{session_id}\",\"cwd\":{},\"message\":{{\"content\":\"Continue automatically\"}}}}\n",
+            serde_json::to_string(workspace.to_str().expect("UTF-8 workspace"))
+                .expect("encode workspace")
+        ),
+    )
+    .expect("write Claude source session");
+    let source_json =
+        serde_json::to_string(source.to_str().expect("UTF-8 source")).expect("encode source path");
+    let cwd_json = serde_json::to_string(workspace.to_str().expect("UTF-8 workspace"))
+        .expect("encode workspace path");
+    let codex_log = fixture.path().join("codex-resume.txt");
+
+    let codex = bin.join("codex");
+    let codex_script = format!(
+        r#"#!/bin/sh
+if [ "$1" = login ] && [ "$2" = status ]; then exit 0; fi
+if [ "$1" = app-server ]; then
+  while IFS= read -r line; do
+    case "$line" in
+      *'"id":0'*) printf '%s\n' '{{"id":0,"result":{{}}}}' ;;
+      *'"id":1'*) printf '%s\n' '{{"id":1,"result":{{"items":[{{"itemType":"SESSIONS","description":"Import Claude sessions","cwd":null,"details":{{"plugins":[],"skills":[],"sessions":[{{"path":{source_json},"cwd":{cwd_json},"title":"Automatic continuity fixture"}}],"mcpServers":[],"hooks":[],"subagents":[],"commands":[]}}}}]}}}}' ;;
+      *'"id":2'*) printf '%s\n' '{{"id":2,"result":{{"data":[]}}}}' ;;
+      *'"id":3'*)
+        printf '%s\n' '{{"id":3,"result":{{"importId":"automatic-import"}}}}'
+        printf '%s\n' '{{"method":"externalAgentConfig/import/completed","params":{{"importId":"automatic-import","itemTypeResults":[{{"itemType":"SESSIONS","successes":[{{"itemType":"SESSIONS","cwd":{cwd_json},"source":{source_json},"target":"019c1111-0000-7000-8000-000000000001","title":"Automatic continuity fixture"}}],"failures":[]}}]}}}}'
+        ;;
+    esac
+  done
+  exit 0
+fi
+if [ "$1" = resume ]; then
+  printf '%s\n' "$@" > "$FAKE_CODEX_LOG"
+  exit 0
+fi
+exit 64
+"#
+    );
+    fs::write(&codex, codex_script).expect("write fake Codex");
+
+    let claude = bin.join("claude");
+    let claude_script = format!(
+        r#"#!/bin/sh
+test -n "$REBINDER_LAUNCH_ID" || exit 70
+printf '%s' '{{"session_id":"{session_id}","cwd":{cwd_json},"transcript_path":{source_json},"rate_limits":{{"five_hour":{{"used_percentage":30,"resets_at":18446744073709551614}},"seven_day":{{"used_percentage":90,"resets_at":18446744073709551615}}}}}}' | "$REBINDER_TEST_BIN" continuity observe >/dev/null || exit 71
+"$REBINDER_TEST_BIN" continuity accept >/dev/null || exit 72
+exit 0
+"#
+    );
+    fs::write(&claude, claude_script).expect("write fake Claude");
+    for executable in [&codex, &claude] {
+        let mut permissions = fs::metadata(executable)
+            .expect("read fake executable metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).expect("make fake executable runnable");
+    }
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let rebinder = env!("CARGO_BIN_EXE_rebinder");
+    let enabled = Command::new(rebinder)
+        .args(["continuity", "enable", "claude", "--to", "codex"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("enable automatic continuity");
+    assert!(
+        enabled.status.success(),
+        "enable failed: {}",
+        String::from_utf8_lossy(&enabled.stderr)
+    );
+
+    let switched = Command::new(rebinder)
+        .arg("claude")
+        .current_dir(&workspace)
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .env("REBINDER_TEST_BIN", rebinder)
+        .env("FAKE_CODEX_LOG", &codex_log)
+        .output()
+        .expect("run Rebinder-owned Claude session");
+    assert!(
+        switched.status.success(),
+        "automatic handoff failed: {}",
+        String::from_utf8_lossy(&switched.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&switched.stderr).contains("accepted continuity handoff detected")
+    );
+    assert_eq!(
+        fs::read_to_string(&codex_log).expect("read Codex resume log"),
+        "resume\n019c1111-0000-7000-8000-000000000001\n"
+    );
+    let status = Command::new(rebinder)
+        .args(["continuity", "status", "--json"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("read completed continuity status");
+    let status: serde_json::Value =
+        serde_json::from_slice(&status.stdout).expect("decode continuity status");
+    assert_eq!(status["offers"][0]["state"], "completed");
+}
+
 #[test]
 fn claude_session_exports_to_a_valid_canonical_package_without_codex_discovery() {
     use std::fs;

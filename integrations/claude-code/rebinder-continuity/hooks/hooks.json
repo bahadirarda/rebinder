@@ -1,0 +1,29 @@
+{
+  "description": "Injects a single consent-gated Rebinder handoff offer when an observed Claude.ai usage window crosses its configured threshold.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rebinder",
+            "args": ["continuity", "hook"],
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolBatch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rebinder",
+            "args": ["continuity", "hook"],
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -32,8 +32,11 @@ machine-compatible with the Rust ecosystem without using compatibility-driven
 version increments as the public release number.
 
 The canonical value is `[package].version` in `Cargo.toml`. `package.json` is a
-private Changesets proxy and `Cargo.lock` repeats the value only where their
-formats require it. Repository validation rejects drift.
+private Changesets proxy, `Cargo.lock` repeats the value, and the Claude Code
+plugin manifest uses the same value because its distribution schema requires a
+three-part version. The plugin does not introduce a separate SemVer lifecycle;
+release automation synchronizes its field to the product CalVer. Repository
+validation rejects drift.
 
 ## Schema version independence
 

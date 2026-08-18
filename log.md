@@ -16,6 +16,9 @@
   creation/resume and semantic-revision deduplication.
 - Added opt-in exact registered-worktree recovery shared by both transfer
   directions, including post-checkout Git identity verification.
+- Added a reversible Claude Code continuity plugin that observes documented
+  five-hour and seven-day usage windows, asks once for consent, and lets the
+  enclosing `rebinder claude` process open Codex after an accepted source exit.
 
 ## 2026-08-17
 

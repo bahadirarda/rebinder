@@ -42,6 +42,11 @@ README examples and release notes MUST preserve this distinction.
 - Private temporary Claude context files and explicit untrusted-history fencing
 - Opt-in missing-worktree recovery from an exact unlocked local Git registry entry
 - Post-recovery HEAD, attached-branch, and common-directory verification
+- Opt-in personal Claude Code continuity plugin and reversible status-line wrapper
+- Authoritative five-hour and seven-day Claude.ai usage observations
+- One-window proactive handoff offers with explicit accept/decline state
+- Rebinder-owned post-exit Claude-to-Codex process switching
+- Direct-Claude accepted-offer resume fallback and human/JSON continuity status
 - Calendar release identity `0.YYYYMMDD.REVISION`
 - Changesets release-intent ledger and automated version pull requests
 - Checksum-verifying Unix and Windows installers
@@ -87,6 +92,29 @@ binding in its own platform data directory; Codex owns native thread creation,
 history injection, activation, compaction, full-import conversion, and session
 persistence.
 
+## Operational proactive continuity path
+
+`rebinder continuity enable claude --to codex` verifies Codex authentication,
+installs a personal Claude Code plugin, and wraps the configured status line.
+The defaults offer at 90% of the five-hour window or 85% of the seven-day
+window. Both thresholds are configurable. Claude Code supplies these fields
+only for eligible Claude.ai subscribers after the first API response; absent
+fields produce no offer.
+
+Each threshold window creates at most one session-scoped offer. The plugin adds
+that offer to one active model turn and requires Claude to ask the user. An
+explicit decline quiets the offer for the same provider window. An explicit
+acceptance arms the normal transfer adapter but does not launch Codex inside a
+Claude hook or tool subprocess.
+
+When the source was opened with `rebinder claude`, the user exits Claude and
+the waiting Rebinder parent prepares and opens the target automatically. A
+session opened with `claude` uses `rebinder continuity resume --offer <id>`
+after exit. `rebinder continuity status [--json]` exposes the installed policy,
+latest observation, target availability, and offer ledger. `rebinder continuity
+disable claude` restores the exact previous status-line value and removes only
+the verified managed plugin files.
+
 ## Operational package portability path
 
 `rebinder capabilities <harness>` publishes the target adapter's preserved,
@@ -105,7 +133,9 @@ to the current user.
 
 ## MVP capability boundary
 
-The planned two-way transfer, canonical portability, and safe registered
-worktree-recovery slices are implemented. Recovery does not clone repositories,
-fetch remotes, unlock worktrees, overwrite paths, or restore uncommitted
-changes; those behaviors remain intentionally outside the MVP.
+The planned two-way transfer, canonical portability, safe registered-worktree
+recovery, and initial proactive Claude-to-Codex continuity slices are
+implemented. Recovery does not clone repositories, fetch remotes, unlock
+worktrees, overwrite paths, or restore uncommitted changes. Continuity does not
+choose a provider, infer subscription billing, poll remote accounts, or transfer
+without explicit consent; those behaviors remain intentionally outside the MVP.

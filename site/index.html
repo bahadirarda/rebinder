@@ -6,11 +6,11 @@
     <title>Rebinder — Continue coding-agent sessions across harnesses</title>
     <meta
       name="description"
-      content="Rebinder is an open-source Rust CLI for two-way Claude Code and Codex continuity plus non-resuming canonical session export."
+      content="Rebinder is an open-source Rust CLI for two-way Claude Code and Codex continuity, proactive limit-aware handoffs, and canonical export."
     >
     <meta
       name="keywords"
-      content="coding agent session, Codex CLI, Claude CLI, session portability, agent harness, Rust CLI, session continuity, developer tools"
+      content="coding agent session, Codex CLI, Claude CLI, proactive handoff, session portability, agent harness, Rust CLI, developer tools"
     >
     <meta name="author" content="bahadirarda">
     <meta name="robots" content="index, follow, max-image-preview:large">
@@ -24,7 +24,7 @@
     <meta property="og:title" content="Rebinder — Leave the harness. Keep the thread.">
     <meta
       property="og:description"
-      content="Continue Claude work in Codex, continue Codex work in Claude, or export either session into a validated canonical package."
+      content="Continue Claude work in Codex, switch proactively near a usage limit, continue Codex work in Claude, or export a validated canonical package."
     >
     <meta property="og:url" content="https://bahadirarda.github.io/rebinder/">
     <meta property="og:image" content="https://bahadirarda.github.io/rebinder/assets/rebinder-social-card.png">
@@ -36,7 +36,7 @@
     <meta name="twitter:title" content="Rebinder — Cross-harness session continuity">
     <meta
       name="twitter:description"
-      content="Continue sessions between Claude Code and Codex in either direction, or export either provider into a validated canonical package."
+      content="Continue sessions between Claude Code and Codex, get consent-gated offers near Claude usage limits, or export a validated canonical package."
     >
     <meta name="twitter:image" content="https://bahadirarda.github.io/rebinder/assets/rebinder-social-card.png">
 
@@ -58,7 +58,7 @@
             "name": "Rebinder",
             "applicationCategory": "DeveloperApplication",
             "operatingSystem": "Linux, macOS, Windows",
-            "description": "An open-source Rust CLI with context-safe two-way Claude Code and Codex transfer, non-resuming canonical provider export, native command passthrough, and package validation.",
+            "description": "An open-source Rust CLI with context-safe two-way Claude Code and Codex transfer, proactive consent-gated handoffs, canonical provider export, native command passthrough, and package validation.",
             "url": "https://bahadirarda.github.io/rebinder/",
             "downloadUrl": "https://github.com/bahadirarda/rebinder/releases/latest",
             "installUrl": "https://bahadirarda.github.io/rebinder/install.sh",
@@ -118,7 +118,8 @@
             <p class="hero-lede">
               Rebinder moves local sessions between Claude Code and Codex in either direction, or
               exports one into a validated canonical package without resuming it.
-              Rebinder owns explicit selection, safe orchestration, and declared information loss.
+              An optional plugin can offer Codex before Claude's documented usage window runs out.
+              Rebinder owns explicit consent, safe orchestration, and declared information loss.
             </p>
 
             <div class="hero-actions">
@@ -160,6 +161,7 @@
               <div><span>02 / Cross-harness transfer</span><strong>both directions live</strong></div>
               <code>rebinder transfer --from codex --to claude -- --model opus</code>
               <p>Canonical checkpoints preserve visible roles and declare losses. Explicit <code>--recover-worktree</code> can rebuild an exact unlocked Git registry entry before target launch.</p>
+              <code>rebinder continuity enable claude --to codex</code>
             </div>
           </div>
         </div>
@@ -184,7 +186,8 @@
               and continue in the other harness. Each direction uses the target's supported APIs,
               a bounded checkpoint where needed, and a visible continuation brief. No direct
               writes to either provider's private session store. Missing worktrees fail closed by
-              default and require explicit, registry-verified recovery.
+              default and require explicit, registry-verified recovery. Or install the optional
+              Claude plugin and receive one consent-gated offer near a five-hour or seven-day limit.
             </p>
           </div>
 
@@ -201,6 +204,13 @@
               <h3>Continue natively in Codex.</h3>
               <div class="code-line"><code>rebinder transfer --from claude --to codex</code><button type="button" data-copy-value="rebinder transfer --from claude --to codex" aria-label="Copy interactive Claude to Codex transfer example">Copy</button></div>
               <p>Choose with arrow keys and Enter. Rebinder binds Codex, uses one read-only model turn to create a history-grounded continuation brief, and opens the thread itself.</p>
+            </article>
+
+            <article class="command-card command-card-blue" data-reveal>
+              <div class="command-card-head"><span>Continuity</span><span>opt-in plugin</span></div>
+              <h3>Offer the switch before the limit.</h3>
+              <div class="code-line"><code>rebinder continuity enable claude --to codex</code><button type="button" data-copy-value="rebinder continuity enable claude --to codex" aria-label="Copy proactive continuity setup">Copy</button></div>
+              <p>Observe Claude's documented subscriber windows, ask once per reset window, and arm the normal handoff only after explicit consent. Start with <code>rebinder claude</code>; exit after accepting and Rebinder opens Codex.</p>
             </article>
 
             <article class="command-card command-card-cyan" data-reveal>
@@ -392,7 +402,7 @@
               Pin an exact release with <code>$env:REBINDER_VERSION='v0.20260818.0'</code>. Review the
               <a href="install.ps1">PowerShell installer source</a> first.
             </p>
-            <div class="first-run"><span>Then discover a Claude session</span><code>rebinder sessions claude</code></div>
+            <div class="first-run"><span>Then discover or enable continuity</span><code>rebinder sessions claude · rebinder continuity status</code></div>
           </div>
         </div>
       </section>

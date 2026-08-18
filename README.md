@@ -41,6 +41,9 @@
 > supported start/resume CLI. A missing workspace still fails closed by
 > default; explicit `--recover-worktree` can recreate only an exact, unlocked
 > worktree that Git still registers.
+> An optional Claude Code plugin can also observe Claude.ai's documented
+> five-hour and seven-day usage windows, ask once before a configured limit,
+> and hand an accepted session to the enclosing `rebinder claude` process.
 
 ## Install
 
@@ -164,6 +167,65 @@ is recovered by its source-revision marker instead of creating a duplicate
 brief.
 Legacy flattened handoff bindings are left intact and upgraded into a fresh
 role-preserving thread the first time this format is used.
+
+## Enable proactive Claude-to-Codex handoff
+
+Rebinder can install an opt-in personal Claude Code plugin that watches the
+provider's documented rate-limit status and offers a transfer before the source
+window is exhausted:
+
+```bash
+rebinder continuity enable claude --to codex
+rebinder claude
+```
+
+The default policy offers at 90% of the five-hour window or 85% of the
+seven-day window. Change either threshold during enablement:
+
+```bash
+rebinder continuity enable claude --to codex \
+  --five-hour-threshold 95 --seven-day-threshold 80
+```
+
+Enablement first requires `codex login status` to succeed. It installs the
+`rebinder-continuity` plugin under the configured personal Claude skills
+directory and wraps, rather than discards, an existing Claude status-line
+command. Restart an active Claude Code session after enabling the plugin.
+
+Claude Code exposes rate-limit fields only for eligible Claude.ai subscribers
+after the first API response. Missing fields create no offer. A threshold
+crossing creates one offer for that source session and provider reset window;
+Claude asks whether to continue in Codex. Rebinder records neither acceptance
+nor a transfer from an ambiguous response. A decline stays quiet for the same
+window.
+
+After an explicit acceptance, enter `/exit`. If the source was opened through
+`rebinder claude`, the waiting Rebinder process prepares the existing normal
+transfer and opens Codex automatically. The plugin never nests an interactive
+Codex TUI inside a Claude hook or tool process. If Claude was opened directly,
+use the exact fallback printed after acceptance:
+
+```bash
+rebinder continuity resume --offer OFFER_ID
+```
+
+Inspect the policy, latest observation, target availability, and offer ledger,
+or remove the integration and restore the exact previous status-line value:
+
+```bash
+rebinder continuity status
+rebinder continuity status --json
+rebinder continuity disable claude
+```
+
+Claude Code permits one custom status-line command, so Rebinder owns that
+wrapper while continuity is enabled. If another tool replaces it, disablement
+fails closed instead of overwriting the new value. Claude Code's normal custom
+status-line footer changes still apply. Continuity state contains sensitive
+session IDs, workspace paths, usage percentages, and reset times; it is stored
+privately in Rebinder's platform data directory where the OS supports private
+permissions. The plugin shares the product's `0.YYYYMMDD.REVISION` CalVer and
+does not have a separate SemVer lifecycle.
 
 ## Transfer Codex to Claude Code
 
@@ -315,6 +377,7 @@ permissions on Unix and are never overwritten.
 | Claude to Codex | Selects interactively or by ID, uses Codex-native import or thread APIs, and opens the native thread from Rebinder in the recorded workspace |
 | Context guard | Injects bounded compact-summary and recent-message items with their user/assistant roles preserved, then creates a visible continuation brief for source transcripts larger than 512 KiB |
 | Repeat transfer | Reuses the strategy-specific thread, ignores metadata-only source churn, and performs compaction and visible activation once per meaningful handoff revision |
+| Proactive continuity | Optional Claude plugin observes documented subscriber usage windows, asks once per reset window, and arms a transfer only after explicit consent |
 | Worktrees | Reuses existing worktrees; with explicit opt-in, recreates only an unlocked exact Git registry entry and verifies its committed checkout before target launch |
 | Compatibility | Declares Codex and Claude continuation capabilities and reports package-specific preserved, summarized, omitted, or blocking state in human/JSON form |
 | Continuation artifact | Produces bounded Markdown continuation state from a validated package without tool output, environment values, attachment payloads, or remote URLs |
