@@ -31,8 +31,10 @@
 
 > [!IMPORTANT]
 > Rebinder can transfer a local Claude Code session into a native Codex thread
-> and immediately open it in the session's recorded workspace. The user stays
-> in Rebinder for the whole operation. The reverse
+> and immediately open it in the session's recorded workspace. Large-session
+> handoffs first create a visible continuation brief from the transferred
+> context, so the opened thread has an explicit current objective and next
+> action. The user stays in Rebinder for the whole operation. The reverse
 > Codex-to-Claude direction and provider-neutral compatibility reporting remain
 > fail-closed. Missing worktrees are reported; Rebinder does not recreate them.
 
@@ -81,9 +83,11 @@ Rebinder discovers Claude sessions through Codex's external-agent API and
 leaves existing Claude and Codex setup unchanged. Small transcripts use the
 native session importer. For large transcripts, Rebinder creates or resumes a
 native Codex thread and injects a bounded, role-preserving checkpoint through
-the Codex app-server, avoiding an oversized imported history. Both paths finish
-by opening Codex from Rebinder in the source workspace; users do not need to
-run a separate `codex resume` command.
+the Codex app-server, avoiding an oversized imported history. It then asks
+Codex for a concise, visible continuation brief grounded in those injected
+items before opening the thread. Both paths finish by opening Codex from
+Rebinder in the source workspace; users do not need to run a separate `codex
+resume` command.
 
 List the Claude sessions Codex can currently detect, including their IDs,
 recorded workspaces, states, and recommended transfer strategies:
@@ -125,6 +129,10 @@ up to 512 KiB. Larger sources use a context-safe handoff containing the latest
 Claude compact summary and at most 40,000 characters of recent visible user and
 assistant text. User and assistant roles are retained instead of flattening the
 history into one prompt. Thinking, tool calls, and tool results are excluded.
+The first transfer of each handoff revision starts one read-only Codex model
+turn to turn that hidden prompt history into a visible continuation brief. The
+activation prompt forbids tool calls and file changes, but it consumes normal
+Codex model tokens. Rebinder does not start it again for an unchanged revision.
 Override the decision explicitly when diagnosing compatibility:
 
 ```bash
@@ -144,9 +152,12 @@ exist. The current Codex discovery surface returns up to 50 chats from the last
 Context-safe handoffs are append-only and inject a new bounded checkpoint only
 when the visible conversation or compact summary changes. Updates to an
 existing handoff thread are compacted through Codex's native API before
-Rebinder opens Codex. Their local JSONL files also hold Rebinder's retry-safe
-injection-and-compaction ledger, live in the platform data directory, and are
-private to the current user where the platform supports file permissions.
+Rebinder creates the new continuation brief and opens Codex. Their local JSONL
+files also hold Rebinder's retry-safe injection, compaction, and activation
+ledger, live in the platform data directory, and are private to the current
+user where the platform supports file permissions. An interrupted activation
+is recovered by its source-revision marker instead of creating a duplicate
+brief.
 Legacy flattened handoff bindings are left intact and upgraded into a fresh
 role-preserving thread the first time this format is used.
 
@@ -182,8 +193,8 @@ than pretending an incompatible target artifact was created.
 | Harness commands | Native arguments, interactive streams, and process status are preserved |
 | Claude discovery | Lists Codex-supported local Claude sessions, sizes, and recommended strategies without printing transcript content |
 | Claude to Codex | Selects interactively or by ID, uses Codex-native import or thread APIs, and opens the native thread from Rebinder in the recorded workspace |
-| Context guard | Injects bounded compact-summary and recent-message items with their user/assistant roles preserved for source transcripts larger than 512 KiB |
-| Repeat transfer | Reuses the strategy-specific thread, ignores metadata-only source churn, and natively compacts meaningful handoff updates before opening Codex |
+| Context guard | Injects bounded compact-summary and recent-message items with their user/assistant roles preserved, then creates a visible continuation brief for source transcripts larger than 512 KiB |
+| Repeat transfer | Reuses the strategy-specific thread, ignores metadata-only source churn, and performs compaction and visible activation once per meaningful handoff revision |
 | Worktrees | Reuses an existing recorded worktree; missing workspace paths fail closed |
 | Compatibility | General provider capability and information-loss reports remain pending |
 | Codex to Claude | Not implemented; exits closed with code `2` |
@@ -239,7 +250,9 @@ contain sensitive workspace and conversation state. Claude-to-Codex transfer
 asks the local Codex app-server to import only the selected small session or to
 inject the bounded role-preserving checkpoint for a large one; it does not
 select settings, credentials, plugins, skills, or MCP configuration. Rebinder
-never prints handoff content and rejects symlinked handoff targets. It fails
+starts one read-only, no-tool model turn to make a new handoff revision visible,
+which consumes Codex model tokens. Rebinder never prints handoff content and
+rejects symlinked handoff targets. It fails
 closed on invalid structure, unsafe paths, missing workspaces, integrity
 failures, and provenance mismatches. Report vulnerabilities through the private
 process in [SECURITY.md](SECURITY.md), not a public issue.

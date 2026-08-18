@@ -12,6 +12,7 @@ use thiserror::Error;
 
 pub(crate) const FULL_IMPORT_MAX_SOURCE_BYTES: u64 = 512 * 1024;
 pub(crate) const HANDOFF_FORMAT_VERSION: u64 = 2;
+pub(crate) const HANDOFF_ACTIVATION_VERSION: u64 = 1;
 const HANDOFF_MAX_CHARS: usize = 120_000;
 const SUMMARY_MAX_CHARS: usize = 80_000;
 const RECENT_MAX_CHARS: usize = HANDOFF_MAX_CHARS - SUMMARY_MAX_CHARS;
@@ -31,6 +32,8 @@ pub(crate) enum HandoffBindingState {
     Unbound { requires_compaction: bool },
     Pending { requires_compaction: bool },
     Injected { requires_compaction: bool },
+    ReadyForActivation,
+    Activating,
     Completed,
 }
 
@@ -44,11 +47,25 @@ impl Default for HandoffBindingState {
 
 impl HandoffBindingState {
     pub(crate) fn injected(self) -> bool {
-        matches!(self, Self::Injected { .. } | Self::Completed)
+        matches!(
+            self,
+            Self::Injected { .. } | Self::ReadyForActivation | Self::Activating | Self::Completed
+        )
     }
 
     pub(crate) fn complete(self) -> bool {
         self == Self::Completed
+    }
+
+    pub(crate) fn bound_history(self) -> bool {
+        matches!(
+            self,
+            Self::ReadyForActivation | Self::Activating | Self::Completed
+        )
+    }
+
+    pub(crate) fn activation_started(self) -> bool {
+        self == Self::Activating
     }
 
     pub(crate) fn requires_compaction(self) -> bool {
@@ -62,7 +79,7 @@ impl HandoffBindingState {
             | Self::Injected {
                 requires_compaction,
             } => requires_compaction,
-            Self::Completed => false,
+            Self::ReadyForActivation | Self::Activating | Self::Completed => false,
         }
     }
 }
@@ -170,7 +187,7 @@ pub(crate) fn completed_handoff_thread(source_path: &Path) -> Result<Option<Stri
     let state = read_handoff_state(&path)?;
     Ok(state
         .latest_binding
-        .complete()
+        .bound_history()
         .then_some(state.codex_thread_id)
         .flatten())
 }
@@ -247,6 +264,7 @@ pub(crate) fn record_pending_handoff_binding(
         codex_thread_id,
         "pending",
         handoff.binding.requires_compaction(),
+        0,
     )
 }
 
@@ -259,14 +277,35 @@ pub(crate) fn record_injected_handoff_binding(
         codex_thread_id,
         "injected",
         handoff.binding.requires_compaction(),
+        0,
     )
+}
+
+pub(crate) fn record_ready_handoff_binding(
+    handoff: &PreparedHandoff,
+    codex_thread_id: &str,
+) -> Result<(), HandoffError> {
+    append_binding(handoff, codex_thread_id, "ready", false, 0)
+}
+
+pub(crate) fn record_activating_handoff_binding(
+    handoff: &PreparedHandoff,
+    codex_thread_id: &str,
+) -> Result<(), HandoffError> {
+    append_binding(handoff, codex_thread_id, "activating", false, 0)
 }
 
 pub(crate) fn record_completed_handoff_binding(
     handoff: &PreparedHandoff,
     codex_thread_id: &str,
 ) -> Result<(), HandoffError> {
-    append_binding(handoff, codex_thread_id, "completed", false)
+    append_binding(
+        handoff,
+        codex_thread_id,
+        "completed",
+        false,
+        HANDOFF_ACTIVATION_VERSION,
+    )
 }
 
 struct ExtractedHandoff {
@@ -580,7 +619,17 @@ fn read_handoff_state(path: &Path) -> Result<HandoffState, HandoffError> {
                         Some("injected") => HandoffBindingState::Injected {
                             requires_compaction,
                         },
-                        Some("completed") => HandoffBindingState::Completed,
+                        Some("activating") => HandoffBindingState::Activating,
+                        Some("completed")
+                            if record
+                                .get("rebinderActivationVersion")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0)
+                                >= HANDOFF_ACTIVATION_VERSION =>
+                        {
+                            HandoffBindingState::Completed
+                        }
+                        Some("ready" | "completed") => HandoffBindingState::ReadyForActivation,
                         _ => state.latest_binding,
                     };
                 }
@@ -650,6 +699,7 @@ fn append_binding(
     codex_thread_id: &str,
     status: &'static str,
     requires_compaction: bool,
+    activation_version: u64,
 ) -> Result<(), HandoffError> {
     let metadata =
         fs::symlink_metadata(&handoff.path).map_err(|source| HandoffError::InspectHandoff {
@@ -676,7 +726,8 @@ fn append_binding(
             "rebinderFormatVersion": HANDOFF_FORMAT_VERSION,
             "codexThreadId": codex_thread_id,
             "status": status,
-            "requiresCompaction": requires_compaction
+            "requiresCompaction": requires_compaction,
+            "rebinderActivationVersion": activation_version
         }),
         &handoff.path,
     )?;
@@ -901,5 +952,28 @@ mod tests {
                 requires_compaction: false
             }
         );
+    }
+
+    #[test]
+    fn upgrades_a_role_preserving_binding_to_require_visible_activation() {
+        let fixture = tempfile::tempdir().expect("handoff fixture");
+        let path = fixture.path().join("handoff.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"user\",\"rebinderFormatVersion\":2,\"rebinderSourceSha256\":\"v2-hash\"}\n",
+                "{\"type\":\"rebinder-binding\",\"rebinderFormatVersion\":2,\"rebinderSourceSha256\":\"v2-hash\",\"codexThreadId\":\"v2-thread\",\"status\":\"completed\"}\n"
+            ),
+        )
+        .expect("write role-preserving binding fixture");
+
+        let state = read_handoff_state(&path).expect("read role-preserving binding state");
+        assert_eq!(state.codex_thread_id.as_deref(), Some("v2-thread"));
+        assert_eq!(
+            state.latest_binding,
+            HandoffBindingState::ReadyForActivation
+        );
+        assert!(state.latest_binding.bound_history());
+        assert!(!state.latest_binding.complete());
     }
 }

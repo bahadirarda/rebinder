@@ -17,8 +17,10 @@ native thread APIs provide the bounded-handoff persistence boundary.
 
 Codex app-server provides `externalAgentConfig/detect` and
 `externalAgentConfig/import` for external sessions. It also provides
-`thread/start`, `thread/resume`, `thread/inject_items`, and
-`thread/compact/start` for native thread history and compaction. A native full
+`thread/start`, `thread/resume`, `thread/inject_items`, `thread/read`,
+`turn/start`, and `thread/compact/start` for native thread history, turns, and
+compaction. Injected response items are model-visible prompt history but are not
+rendered as ordinary turns. A native full
 import can flatten a very large Claude transcript,
 including history before Claude compact summaries. Such a thread can exceed
 the Codex context window before remote compaction can recover it. The external
@@ -49,19 +51,29 @@ Implement the first operational direction as a target-native transfer bridge:
    prior thread with `thread/resume`, then append metadata, compact summary, and
    recent conversation as role-preserving items with `thread/inject_items`
    without starting a model turn.
-8. Store pending, injected, and completed semantic-revision-to-thread bindings
-   beside the append-only handoff. A retry after injection continues with
-   compaction without injecting the same items again.
-9. On repeat transfer, reuse an unchanged handoff thread. Ignore source changes
+8. After injection and any required compaction, start one `turn/start` activation
+   with read-only sandboxing, approvals disabled, and a prompt that forbids tool
+   use and file changes. The response MUST be a visible continuation brief
+   grounded only in the transferred history.
+9. Store pending, injected, ready, activating, and completed
+   semantic-revision-to-thread bindings beside the append-only handoff. A retry
+   after injection continues without injecting the same items again. If an
+   activation completed before its final ledger write, recover it with
+   `thread/read` and an exact source-revision marker rather than starting a
+   duplicate turn.
+10. On repeat transfer, reuse an unchanged handoff thread. Ignore source changes
    that do not affect the bounded visible conversation. For a meaningful
    update, inject one checkpoint and complete `thread/compact/start` before
-   opening the thread.
-10. Verify that the recorded workspace exists, then have Rebinder open the
+   activating and opening the thread.
+11. Verify that the recorded workspace exists, then have Rebinder open the
     bound thread there through the installed Codex CLI. The internal resume
     invocation is not a separate user step.
-11. When upgrading a legacy flattened handoff binding to the role-preserving
+12. When upgrading a legacy flattened handoff binding to the role-preserving
     format, leave the legacy thread untouched and create a fresh native thread.
     Subsequent updates reuse and compact the new binding.
+13. Treat a role-preserving handoff completed before continuity activation was
+    introduced as ready for in-place activation. Do not reinject its history or
+    replace its native thread.
 
 The bridge must fail closed when the app-server method is unavailable, session
 selection is ambiguous, the source ID is unknown, a native API rejects the
@@ -75,8 +87,10 @@ within a conservative context budget. The bounded path depends on the minimal
 Claude JSONL message and compact-summary records, but never mutates Claude's
 store. Semantic revisions prevent unrelated Claude metadata writes from
 duplicating history, while target-native compaction absorbs meaningful repeat
-updates. Both full-import and handoff threads remain native Codex sessions that
-Rebinder can open normally.
+updates. A bounded transfer performs one normal Codex model request per new
+semantic revision to make that context visible as a continuation brief; an
+unchanged transfer performs none. Both full-import and handoff threads remain
+native Codex sessions that Rebinder can open normally.
 
 This path is asymmetric and depends on the installed Codex version's supported
 import surface. It does not replace the canonical interchange pipeline,

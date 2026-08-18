@@ -1,5 +1,14 @@
 # Directory Update Log
 
+## 2026-08-18
+
+- Added interactive Claude session selection and bounded native Codex handoffs
+  for large histories.
+- Preserved user and assistant roles, ignored metadata-only source churn, and
+  compacted meaningful updates without duplicate injection.
+- Added a retry-safe, read-only continuity activation turn so transferred
+  context appears as a visible continuation brief before Codex opens.
+
 ## 2026-08-17
 
 - Initialized the project documentation bundle.
