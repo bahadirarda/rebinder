@@ -3,7 +3,7 @@
   "name": "rebinder-continuity",
   "displayName": "Rebinder Continuity",
   "version": "0.20260818.8",
-  "description": "Offers a consent-gated cross-harness handoff before Claude Code usage limits are exhausted.",
+  "description": "Offers consent-gated handoffs before Claude Code usage limits and records typed rate-limit failures for local rescue.",
   "author": {
     "name": "bahadirarda",
     "url": "https://github.com/bahadirarda"
@@ -14,6 +14,7 @@
   "keywords": [
     "continuity",
     "handoff",
+    "rescue",
     "codex",
     "session"
   ],

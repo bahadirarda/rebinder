@@ -47,6 +47,8 @@ README examples and release notes MUST preserve this distinction.
 - One-window proactive handoff offers with explicit accept/decline state
 - Rebinder-owned post-exit Claude-to-Codex process switching
 - Direct-Claude accepted-offer resume fallback and human/JSON continuity status
+- Authoritative Claude `StopFailure(rate_limit)` rescue with deduplicated state
+- Post-exit local consent prompt and direct-Claude rescue fallback
 - Calendar release identity `0.YYYYMMDD.REVISION`
 - Changesets release-intent ledger and automated version pull requests
 - Checksum-verifying Unix and Windows installers
@@ -115,6 +117,17 @@ latest observation, target availability, and offer ledger. `rebinder continuity
 disable claude` restores the exact previous status-line value and removes only
 the verified managed plugin files.
 
+If Claude reaches a provider rate limit before the proactive path completes,
+the plugin's `StopFailure` hook records the exact `rate_limit` event without
+giving the failed model turn any decision authority. It emits one allowlisted
+terminal notification for the matching transcript revision. After a
+Rebinder-owned Claude process exits, its parent asks locally whether to
+continue; a direct Claude launch uses `rebinder continuity rescue`. The prompt
+defaults to no, an active decline is preserved, non-interactive rescue requires
+`--yes`, and target authentication is checked again before consent. Accepted
+rescue uses the same normal transfer adapter and cannot start inside a Claude
+hook or tool subprocess.
+
 ## Operational package portability path
 
 `rebinder capabilities <harness>` publishes the target adapter's preserved,
@@ -135,7 +148,7 @@ to the current user.
 
 The planned two-way transfer, canonical portability, safe registered-worktree
 recovery, and initial proactive Claude-to-Codex continuity slices are
-implemented. Recovery does not clone repositories, fetch remotes, unlock
+implemented, including a provider-reported hard-limit rescue fallback. Recovery does not clone repositories, fetch remotes, unlock
 worktrees, overwrite paths, or restore uncommitted changes. Continuity does not
 choose a provider, infer subscription billing, poll remote accounts, or transfer
 without explicit consent; those behaviors remain intentionally outside the MVP.

@@ -222,6 +222,15 @@ fn claude_continuity_plugin_offers_one_consent_gated_weekly_handoff() {
     let plugin = claude_config.join("skills/rebinder-continuity");
     assert!(plugin.join("hooks/hooks.json").is_file());
     assert!(plugin.join("skills/handoff/SKILL.md").is_file());
+    let hooks: serde_json::Value = serde_json::from_slice(
+        &fs::read(plugin.join("hooks/hooks.json")).expect("read plugin hooks"),
+    )
+    .expect("decode plugin hooks");
+    assert_eq!(hooks["hooks"]["StopFailure"][0]["matcher"], "rate_limit");
+    assert_eq!(
+        hooks["hooks"]["StopFailure"][0]["hooks"][0]["args"],
+        serde_json::json!(["continuity", "failure"])
+    );
     let manifest: serde_json::Value = serde_json::from_slice(
         &fs::read(plugin.join(".claude-plugin/plugin.json")).expect("read plugin manifest"),
     )
@@ -412,6 +421,144 @@ fn claude_continuity_plugin_offers_one_consent_gated_weekly_handoff() {
 
 #[cfg(unix)]
 #[test]
+fn hard_limit_rescue_respects_a_decline_from_an_earlier_launch() {
+    use std::{fs, io::Write, os::unix::fs::PermissionsExt, process::Stdio};
+
+    let fixture = tempfile::tempdir().expect("create declined rescue fixture");
+    let claude_config = fixture.path().join("claude");
+    let data = fixture.path().join("data");
+    let workspace = fixture.path().join("workspace");
+    let bin = fixture.path().join("bin");
+    let transcript = fixture.path().join("declined-session.jsonl");
+    let failure_output = fixture.path().join("failure-output.json");
+    fs::create_dir_all(&claude_config).expect("create Claude config");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::create_dir_all(&bin).expect("create fake bin");
+    fs::write(&transcript, "declined rescue fixture\n").expect("write transcript");
+    let codex = bin.join("codex");
+    fs::write(
+        &codex,
+        "#!/bin/sh\n[ \"$1\" = login ] && [ \"$2\" = status ] && exit 0\nexit 64\n",
+    )
+    .expect("write fake Codex");
+    let session_id = "55555555-4444-3333-2222-111111111111";
+    let cwd_json = serde_json::to_string(workspace.to_str().expect("UTF-8 workspace"))
+        .expect("encode workspace");
+    let transcript_json = serde_json::to_string(transcript.to_str().expect("UTF-8 transcript"))
+        .expect("encode transcript");
+    let claude = bin.join("claude");
+    fs::write(
+        &claude,
+        format!(
+            r#"#!/bin/sh
+failure='{{"session_id":"{session_id}","cwd":{cwd_json},"transcript_path":{transcript_json},"hook_event_name":"StopFailure","error":"rate_limit"}}'
+printf '%s' "$failure" | "$REBINDER_TEST_BIN" continuity failure > "$FAKE_FAILURE_OUTPUT" || exit 71
+exit 0
+"#
+        ),
+    )
+    .expect("write fake Claude");
+    for executable in [&codex, &claude] {
+        let mut permissions = fs::metadata(executable)
+            .expect("read fake executable metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).expect("make fake executable runnable");
+    }
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let rebinder = env!("CARGO_BIN_EXE_rebinder");
+    let enabled = Command::new(rebinder)
+        .args(["continuity", "enable", "claude", "--to", "codex"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("enable declined rescue fixture");
+    assert!(enabled.status.success());
+
+    let statusline_input = serde_json::json!({
+        "session_id": session_id,
+        "cwd": workspace,
+        "transcript_path": transcript,
+        "rate_limits": {
+            "seven_day": { "used_percentage": 90.0, "resets_at": u64::MAX }
+        }
+    });
+    let mut observer = Command::new(rebinder)
+        .args(["continuity", "observe"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .env("REBINDER_LAUNCH_ID", "earlier-launch")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .expect("start declined-offer observer");
+    observer
+        .stdin
+        .take()
+        .expect("observer stdin")
+        .write_all(statusline_input.to_string().as_bytes())
+        .expect("write declined-offer status line");
+    assert!(observer.wait().expect("wait for observer").success());
+    let status = Command::new(rebinder)
+        .args(["continuity", "status", "--json"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("read proactive offer");
+    let status: serde_json::Value =
+        serde_json::from_slice(&status.stdout).expect("decode proactive offer");
+    let offer_id = status["offers"][0]["id"]
+        .as_str()
+        .expect("offer ID")
+        .to_owned();
+    let declined = Command::new(rebinder)
+        .args(["continuity", "decline", "--offer", &offer_id])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("decline proactive offer");
+    assert!(declined.status.success());
+
+    let stopped = Command::new(rebinder)
+        .arg("claude")
+        .current_dir(&workspace)
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .env("REBINDER_TEST_BIN", rebinder)
+        .env("FAKE_FAILURE_OUTPUT", &failure_output)
+        .output()
+        .expect("run declined hard-limit failure");
+    assert!(stopped.status.success());
+    assert!(!String::from_utf8_lossy(&stopped.stderr).contains("rescue is ready"));
+    assert_eq!(
+        fs::read_to_string(&failure_output).expect("read suppressed notification"),
+        ""
+    );
+    let final_status = Command::new(rebinder)
+        .args(["continuity", "status", "--json"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("read declined rescue status");
+    let final_status: serde_json::Value =
+        serde_json::from_slice(&final_status.stdout).expect("decode declined rescue status");
+    assert_eq!(final_status["offers"].as_array().map(Vec::len), Some(1));
+    assert_eq!(final_status["offers"][0]["state"], "declined");
+    assert_eq!(final_status["offers"][0]["rescueReady"], false);
+}
+
+#[cfg(unix)]
+#[test]
 fn rebinder_claude_opens_codex_after_an_accepted_continuity_exit() {
     use std::{fs, os::unix::fs::PermissionsExt};
 
@@ -537,6 +684,201 @@ exit 0
     let status: serde_json::Value =
         serde_json::from_slice(&status.stdout).expect("decode continuity status");
     assert_eq!(status["offers"][0]["state"], "completed");
+}
+
+#[cfg(unix)]
+#[test]
+fn claude_rate_limit_failure_requires_consent_then_rescues_into_codex() {
+    use std::{fs, os::unix::fs::PermissionsExt};
+
+    let fixture = tempfile::tempdir().expect("create hard-limit rescue fixture");
+    let bin = fixture.path().join("bin");
+    let claude_config = fixture.path().join("claude");
+    let data = fixture.path().join("data");
+    let workspace = fixture.path().join("workspace");
+    let sessions = fixture.path().join("sessions");
+    fs::create_dir_all(&bin).expect("create fake bin");
+    fs::create_dir_all(&claude_config).expect("create Claude config");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::create_dir_all(&sessions).expect("create session store");
+    let session_id = "77777777-6666-5555-4444-333333333333";
+    let source = sessions.join(format!("{session_id}.jsonl"));
+    fs::write(
+        &source,
+        format!(
+            "{{\"type\":\"user\",\"sessionId\":\"{session_id}\",\"cwd\":{},\"message\":{{\"content\":\"Continue after the provider limit\"}}}}\n",
+            serde_json::to_string(workspace.to_str().expect("UTF-8 workspace"))
+                .expect("encode workspace")
+        ),
+    )
+    .expect("write Claude rescue source");
+    let source_json =
+        serde_json::to_string(source.to_str().expect("UTF-8 source")).expect("encode source path");
+    let cwd_json = serde_json::to_string(workspace.to_str().expect("UTF-8 workspace"))
+        .expect("encode workspace path");
+    let codex_log = fixture.path().join("codex-rescue.txt");
+    let failure_output = fixture.path().join("failure-output.jsonl");
+
+    let codex = bin.join("codex");
+    let codex_script = format!(
+        r#"#!/bin/sh
+if [ "$1" = login ] && [ "$2" = status ]; then exit 0; fi
+if [ "$1" = app-server ]; then
+  while IFS= read -r line; do
+    case "$line" in
+      *'"id":0'*) printf '%s\n' '{{"id":0,"result":{{}}}}' ;;
+      *'"id":1'*) printf '%s\n' '{{"id":1,"result":{{"items":[{{"itemType":"SESSIONS","description":"Import Claude sessions","cwd":null,"details":{{"plugins":[],"skills":[],"sessions":[{{"path":{source_json},"cwd":{cwd_json},"title":"Hard-limit rescue fixture"}}],"mcpServers":[],"hooks":[],"subagents":[],"commands":[]}}}}]}}}}' ;;
+      *'"id":2'*) printf '%s\n' '{{"id":2,"result":{{"data":[]}}}}' ;;
+      *'"id":3'*)
+        printf '%s\n' '{{"id":3,"result":{{"importId":"rescue-import"}}}}'
+        printf '%s\n' '{{"method":"externalAgentConfig/import/completed","params":{{"importId":"rescue-import","itemTypeResults":[{{"itemType":"SESSIONS","successes":[{{"itemType":"SESSIONS","cwd":{cwd_json},"source":{source_json},"target":"019c2222-0000-7000-8000-000000000002","title":"Hard-limit rescue fixture"}}],"failures":[]}}]}}}}'
+        ;;
+    esac
+  done
+  exit 0
+fi
+if [ "$1" = resume ]; then
+  printf '%s\n' "$@" > "$FAKE_CODEX_LOG"
+  exit 0
+fi
+exit 64
+"#
+    );
+    fs::write(&codex, codex_script).expect("write fake Codex");
+
+    let claude = bin.join("claude");
+    let claude_script = format!(
+        r#"#!/bin/sh
+test -n "$REBINDER_LAUNCH_ID" || exit 70
+failure='{{"session_id":"{session_id}","cwd":{cwd_json},"transcript_path":{source_json},"hook_event_name":"StopFailure","error":"rate_limit","error_details":"429 Too Many Requests","last_assistant_message":"API Error: Rate limit reached"}}'
+printf '%s' "$failure" | "$REBINDER_TEST_BIN" continuity failure > "$FAKE_FAILURE_OUTPUT" || exit 71
+printf '%s' "$failure" | "$REBINDER_TEST_BIN" continuity failure >> "$FAKE_FAILURE_OUTPUT" || exit 72
+exit 0
+"#
+    );
+    fs::write(&claude, claude_script).expect("write fake Claude");
+    for executable in [&codex, &claude] {
+        let mut permissions = fs::metadata(executable)
+            .expect("read fake executable metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).expect("make fake executable runnable");
+    }
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let rebinder = env!("CARGO_BIN_EXE_rebinder");
+    let enabled = Command::new(rebinder)
+        .args(["continuity", "enable", "claude", "--to", "codex"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("enable hard-limit rescue");
+    assert!(enabled.status.success());
+
+    let stopped = Command::new(rebinder)
+        .arg("claude")
+        .current_dir(&workspace)
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .env("REBINDER_TEST_BIN", rebinder)
+        .env("FAKE_FAILURE_OUTPUT", &failure_output)
+        .env("FAKE_CODEX_LOG", &codex_log)
+        .output()
+        .expect("run rate-limited Claude fixture");
+    assert!(stopped.status.success());
+    assert!(String::from_utf8_lossy(&stopped.stderr).contains("Claude rate-limit rescue is ready"));
+    assert!(!codex_log.exists(), "target started without consent");
+    let notification_lines = fs::read_to_string(&failure_output)
+        .expect("read failure hook output")
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert_eq!(notification_lines.len(), 1, "rescue notification repeated");
+    let notification: serde_json::Value =
+        serde_json::from_str(&notification_lines[0]).expect("decode terminal notification");
+    assert!(
+        notification["terminalSequence"]
+            .as_str()
+            .is_some_and(|sequence| sequence.contains("Rebinder recorded"))
+    );
+
+    let status = Command::new(rebinder)
+        .args(["continuity", "status", "--json"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("read rescue status");
+    let status: serde_json::Value =
+        serde_json::from_slice(&status.stdout).expect("decode rescue status");
+    assert_eq!(status["offers"].as_array().map(Vec::len), Some(1));
+    assert_eq!(status["offers"][0]["reason"], "rate_limit_failure");
+    assert_eq!(status["offers"][0]["state"], "ready");
+    assert_eq!(status["offers"][0]["rescueReady"], true);
+    let offer_id = status["offers"][0]["id"]
+        .as_str()
+        .expect("rescue offer ID")
+        .to_owned();
+
+    let nested = Command::new(rebinder)
+        .args(["continuity", "rescue", "--offer", &offer_id, "--yes"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .env("REBINDER_LAUNCH_ID", "still-inside-claude")
+        .env("FAKE_CODEX_LOG", &codex_log)
+        .output()
+        .expect("refuse nested rescue");
+    assert_eq!(nested.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&nested.stderr).contains("exit Claude Code"));
+    assert!(!codex_log.exists(), "target nested inside Claude");
+
+    let refused = Command::new(rebinder)
+        .args(["continuity", "rescue", "--offer", &offer_id])
+        .current_dir(&workspace)
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .env("FAKE_CODEX_LOG", &codex_log)
+        .output()
+        .expect("refuse non-interactive rescue without consent");
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("explicit consent"));
+    assert!(!codex_log.exists(), "target started after refused rescue");
+
+    let rescued = Command::new(rebinder)
+        .args(["continuity", "rescue", "--offer", &offer_id, "--yes"])
+        .current_dir(&workspace)
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .env("FAKE_CODEX_LOG", &codex_log)
+        .output()
+        .expect("accept hard-limit rescue");
+    assert!(
+        rescued.status.success(),
+        "rescue failed: {}",
+        String::from_utf8_lossy(&rescued.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&codex_log).expect("read rescued Codex resume log"),
+        "resume\n019c2222-0000-7000-8000-000000000002\n"
+    );
+    let completed = Command::new(rebinder)
+        .args(["continuity", "status", "--json"])
+        .env("CLAUDE_CONFIG_DIR", &claude_config)
+        .env("XDG_DATA_HOME", &data)
+        .env("PATH", &path)
+        .output()
+        .expect("read completed rescue status");
+    let completed: serde_json::Value =
+        serde_json::from_slice(&completed.stdout).expect("decode completed rescue status");
+    assert_eq!(completed["offers"][0]["state"], "completed");
 }
 
 #[test]

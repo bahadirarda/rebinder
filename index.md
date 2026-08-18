@@ -31,6 +31,7 @@ Rebinder rebinds an agent session's portable state to a different coding agent h
 - [ADR-0008: Canonical Codex-to-Claude continuation](docs/decisions/ADR-0008-canonical-codex-to-claude-continuation.md)
 - [ADR-0009: Opt-in registered worktree recovery](docs/decisions/ADR-0009-opt-in-registered-worktree-recovery.md)
 - [ADR-0010: Consent-gated proactive handoff](docs/decisions/ADR-0010-consent-gated-proactive-handoff.md)
+- [ADR-0011: Authoritative hard-limit rescue](docs/decisions/ADR-0011-authoritative-hard-limit-rescue.md)
 
 ## Status
 
@@ -48,5 +49,7 @@ explicit exact registered-worktree recovery, and the product site are
 implemented. An opt-in Claude Code plugin can also observe documented five-hour
 and seven-day usage windows, ask once for consent near a configured threshold,
 and let the enclosing `rebinder claude` process open Codex after the user exits
-Claude. Recovery deliberately excludes clone, fetch, unlock, overwrite, and
+Claude. A documented Claude `StopFailure(rate_limit)` event also creates a
+deduplicated out-of-band rescue whose local prompt still requires explicit
+consent. Recovery deliberately excludes clone, fetch, unlock, overwrite, and
 uncommitted-state restoration.

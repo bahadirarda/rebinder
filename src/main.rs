@@ -6,19 +6,21 @@ use std::{
 };
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use dialoguer::{Select, theme::ColorfulTheme};
+use dialoguer::{Confirm, Select, theme::ColorfulTheme};
 use rebinder::{
     CapabilitySupport, ClaudeContinuationState, ClaudeSession, ClaudeTransferStrategy,
-    CompatibilityFindingSeverity, CompatibilityReport, ContinuityOffer, ContinuityOfferState,
-    ContinuityStatus, DEFAULT_FIVE_HOUR_THRESHOLD, DEFAULT_SEVEN_DAY_THRESHOLD, ExportableSession,
-    Harness, Inspection, ProviderCapabilities, ValidationReport, WorktreeRecovery,
-    accept_continuity_offer, accepted_continuity_offer, accepted_offer_for_launch,
-    assess_package_compatibility, claude_hook_output, continuity_status, decline_continuity_offer,
-    disable_claude_continuity, discover_claude_sessions, discover_exportable_sessions,
-    enable_claude_continuity, export_session, inspect_package, launch_prepared_claude_session,
-    launch_prepared_codex_session, mark_continuity_offer_completed, new_continuity_launch_id,
+    CompatibilityFindingSeverity, CompatibilityReport, ContinuityOffer, ContinuityOfferReason,
+    ContinuityOfferState, ContinuityStatus, DEFAULT_FIVE_HOUR_THRESHOLD,
+    DEFAULT_SEVEN_DAY_THRESHOLD, ExportableSession, Harness, Inspection, ProviderCapabilities,
+    ValidationReport, WorktreeRecovery, accept_continuity_offer, accepted_continuity_offer,
+    accepted_offer_for_launch, assess_package_compatibility, claude_hook_output, continuity_status,
+    decline_continuity_offer, disable_claude_continuity, discover_claude_sessions,
+    discover_exportable_sessions, enable_claude_continuity, export_session, inspect_package,
+    launch_prepared_claude_session, launch_prepared_codex_session, mark_continuity_offer_asked,
+    mark_continuity_offer_completed, new_continuity_launch_id,
     prepare_claude_to_codex_with_strategy_and_recovery, prepare_codex_to_claude_with_recovery,
-    prepare_continuation_artifact, process_claude_statusline, provider_capabilities, run_harness,
+    prepare_continuation_artifact, process_claude_statusline, process_claude_stop_failure,
+    provider_capabilities, rescue_continuity_offer, rescue_offer_for_launch, run_harness,
     run_harness_with_environment, validate_package,
 };
 
@@ -135,6 +137,9 @@ enum ContinuityCommand {
     /// Internal Claude Code hook bridge.
     #[command(hide = true)]
     Hook,
+    /// Internal Claude Code `StopFailure` bridge.
+    #[command(hide = true)]
+    Failure,
     /// Accept a pending offer after explicit user consent.
     #[command(hide = true)]
     Accept(ContinuityOfferArgs),
@@ -143,6 +148,8 @@ enum ContinuityCommand {
     Decline(ContinuityOfferArgs),
     /// Finish an accepted handoff when Claude was not opened through Rebinder.
     Resume(ContinuityOfferArgs),
+    /// Continue a session after Claude Code reports a provider rate limit.
+    Rescue(ContinuityRescueArgs),
 }
 
 #[derive(Debug, Args)]
@@ -173,6 +180,16 @@ struct ContinuityOfferArgs {
     /// Exact offer ID; inferred from a Rebinder-owned Claude process when omitted.
     #[arg(long)]
     offer: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct ContinuityRescueArgs {
+    /// Exact rescue offer ID; the latest unfinished rescue is used when omitted.
+    #[arg(long)]
+    offer: Option<String>,
+    /// Explicitly accept the rescue without an interactive terminal prompt.
+    #[arg(short = 'y', long)]
+    yes: bool,
 }
 
 #[derive(Debug, Args)]
@@ -373,6 +390,7 @@ fn run_continuity(command: ContinuityCommand) -> ExitCode {
         },
         ContinuityCommand::Observe => continuity_observe(),
         ContinuityCommand::Hook => continuity_hook(),
+        ContinuityCommand::Failure => continuity_failure(),
         ContinuityCommand::Accept(arguments) => {
             match accept_continuity_offer(arguments.offer.as_deref()) {
                 Ok(offer) => {
@@ -406,11 +424,17 @@ fn run_continuity(command: ContinuityCommand) -> ExitCode {
             }
         }
         ContinuityCommand::Resume(arguments) => {
+            if running_inside_rebinder_claude() {
+                return continuity_error(
+                    "exit Claude Code before resuming a continuity handoff; target TUIs cannot start inside the source process",
+                );
+            }
             match accepted_continuity_offer(arguments.offer.as_deref()) {
                 Ok(offer) => resume_continuity_offer(&offer),
                 Err(error) => continuity_error(error),
             }
         }
+        ContinuityCommand::Rescue(arguments) => rescue_continuity(&arguments),
     }
 }
 
@@ -454,6 +478,91 @@ fn continuity_hook() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn continuity_failure() -> ExitCode {
+    let mut input = Vec::new();
+    if let Err(error) = io::stdin().read_to_end(&mut input) {
+        eprintln!("rebinder continuity failure hook: cannot read hook input: {error}");
+        return ExitCode::SUCCESS;
+    }
+    match process_claude_stop_failure(&input) {
+        Ok(Some(output)) => match serde_json::to_string(&output) {
+            Ok(output) => println!("{output}"),
+            Err(error) => {
+                eprintln!("rebinder continuity failure hook: cannot encode output: {error}");
+            }
+        },
+        Ok(None) => {}
+        Err(error) => eprintln!("rebinder continuity failure hook: {error}"),
+    }
+    ExitCode::SUCCESS
+}
+
+fn rescue_continuity(arguments: &ContinuityRescueArgs) -> ExitCode {
+    if running_inside_rebinder_claude() {
+        return continuity_error(
+            "exit Claude Code before starting hard-limit rescue; target TUIs cannot start inside the source process",
+        );
+    }
+    let offer = match rescue_continuity_offer(arguments.offer.as_deref()) {
+        Ok(offer) => offer,
+        Err(error) => return continuity_error(error),
+    };
+    let accepted = if offer_state_is_accepted(&offer) || arguments.yes {
+        true
+    } else if io::stdin().is_terminal() && io::stderr().is_terminal() {
+        if let Err(error) = mark_continuity_offer_asked(&offer.id) {
+            return continuity_error(error);
+        }
+        match prompt_rescue_consent(&offer) {
+            Ok(accepted) => accepted,
+            Err(error) => return continuity_error(error),
+        }
+    } else {
+        eprintln!(
+            "error: hard-limit rescue requires explicit consent; rerun `rebinder continuity rescue --offer {} --yes`",
+            offer.id
+        );
+        return ExitCode::from(2);
+    };
+    if !accepted {
+        return match decline_continuity_offer(Some(&offer.id)) {
+            Ok(_) => {
+                eprintln!("rebinder: hard-limit rescue declined; no target was started");
+                ExitCode::SUCCESS
+            }
+            Err(error) => continuity_error(error),
+        };
+    }
+    match accept_continuity_offer(Some(&offer.id)) {
+        Ok(offer) => resume_continuity_offer(&offer),
+        Err(error) => continuity_error(error),
+    }
+}
+
+fn running_inside_rebinder_claude() -> bool {
+    std::env::var_os("REBINDER_LAUNCH_ID").is_some_and(|value| !value.is_empty())
+}
+
+fn prompt_rescue_consent(offer: &ContinuityOffer) -> Result<bool, String> {
+    Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt(format!(
+            "Claude Code hit a provider rate limit. Continue session {} in {}?",
+            offer.session_id,
+            offer.target.executable()
+        ))
+        .default(false)
+        .interact()
+        .map_err(|error| format!("cannot read rescue consent: {error}"))
+}
+
+fn offer_state_is_accepted(offer: &ContinuityOffer) -> bool {
+    continuity_status().is_ok_and(|status| {
+        status.offers.into_iter().any(|candidate| {
+            candidate.offer.id == offer.id && candidate.state == ContinuityOfferState::Accepted
+        })
+    })
+}
+
 fn launch_claude(arguments: Vec<OsString>) -> ExitCode {
     let launch_id = new_continuity_launch_id();
     let status = match run_harness_with_environment(
@@ -477,7 +586,43 @@ fn launch_claude(arguments: Vec<OsString>) -> ExitCode {
             );
             resume_continuity_offer(&offer)
         }
-        Ok(None) => process_exit_code(status.code()),
+        Ok(None) => match rescue_offer_for_launch(&launch_id) {
+            Ok(Some(offer)) if io::stdin().is_terminal() && io::stderr().is_terminal() => {
+                if let Err(error) = mark_continuity_offer_asked(&offer.id) {
+                    eprintln!("warning: cannot record rescue prompt: {error}");
+                    return process_exit_code(status.code());
+                }
+                match prompt_rescue_consent(&offer) {
+                    Ok(true) => match accept_continuity_offer(Some(&offer.id)) {
+                        Ok(offer) => resume_continuity_offer(&offer),
+                        Err(error) => continuity_error(error),
+                    },
+                    Ok(false) => {
+                        if let Err(error) = decline_continuity_offer(Some(&offer.id)) {
+                            eprintln!("warning: cannot record rescue decline: {error}");
+                        }
+                        eprintln!("rebinder: hard-limit rescue declined; no target was started");
+                        process_exit_code(status.code())
+                    }
+                    Err(error) => {
+                        eprintln!("warning: {error}");
+                        process_exit_code(status.code())
+                    }
+                }
+            }
+            Ok(Some(offer)) => {
+                eprintln!(
+                    "rebinder: Claude rate-limit rescue is ready; run `rebinder continuity rescue --offer {}` in an interactive terminal",
+                    offer.id
+                );
+                process_exit_code(status.code())
+            }
+            Ok(None) => process_exit_code(status.code()),
+            Err(error) => {
+                eprintln!("warning: cannot inspect continuity rescues: {error}");
+                process_exit_code(status.code())
+            }
+        },
         Err(error) => {
             eprintln!("warning: cannot inspect continuity offers: {error}");
             process_exit_code(status.code())
@@ -556,7 +701,7 @@ fn print_continuity_status(status: &ContinuityStatus) {
     }
     for offer in status.offers.iter().rev().take(5) {
         println!(
-            "offer {}\t{}\t{} -> {}\t{}",
+            "offer {}\t{}\t{}\t{} -> {}\t{}{}",
             offer.offer.id,
             match offer.state {
                 ContinuityOfferState::Ready => "ready",
@@ -565,9 +710,19 @@ fn print_continuity_status(status: &ContinuityStatus) {
                 ContinuityOfferState::Declined => "declined",
                 ContinuityOfferState::Completed => "completed",
             },
+            match offer.offer.reason {
+                ContinuityOfferReason::SevenDayLimit => "seven-day-limit",
+                ContinuityOfferReason::FiveHourLimit => "five-hour-limit",
+                ContinuityOfferReason::RateLimitFailure => "rate-limit-failure",
+            },
             offer.offer.source.executable(),
             offer.offer.target.executable(),
-            offer.offer.session_id
+            offer.offer.session_id,
+            if offer.rescue_ready {
+                "\trescue-ready"
+            } else {
+                ""
+            }
         );
     }
 }

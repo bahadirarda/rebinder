@@ -209,6 +209,23 @@ use the exact fallback printed after acceptance:
 rebinder continuity resume --offer OFFER_ID
 ```
 
+If Claude Code reaches the provider limit before a proactive question can
+complete, the same plugin records only its documented `StopFailure` event when
+the error type is `rate_limit`. The failed model turn cannot approve anything.
+Rebinder emits a terminal notification and waits for Claude Code to exit. A
+session opened through `rebinder claude` then asks locally whether to continue
+in Codex. A direct Claude launch uses the same explicit local question:
+
+```bash
+rebinder continuity rescue
+```
+
+The rescue is deduplicated for the failed transcript revision. An active
+decline is respected, no Codex process starts on an ambiguous or negative
+answer, and non-interactive use fails unless the operator supplies the explicit
+`--yes` consent flag. Both `resume` and `rescue` refuse to start a target TUI
+while still running inside the Rebinder-owned Claude process.
+
 Inspect the policy, latest observation, target availability, and offer ledger,
 or remove the integration and restore the exact previous status-line value:
 
@@ -378,6 +395,7 @@ permissions on Unix and are never overwritten.
 | Context guard | Injects bounded compact-summary and recent-message items with their user/assistant roles preserved, then creates a visible continuation brief for source transcripts larger than 512 KiB |
 | Repeat transfer | Reuses the strategy-specific thread, ignores metadata-only source churn, and performs compaction and visible activation once per meaningful handoff revision |
 | Proactive continuity | Optional Claude plugin observes documented subscriber usage windows, asks once per reset window, and arms a transfer only after explicit consent |
+| Hard-limit rescue | A documented Claude `StopFailure(rate_limit)` event creates one out-of-band rescue; the local parent or explicit CLI command asks for consent before reusing the normal transfer adapter |
 | Worktrees | Reuses existing worktrees; with explicit opt-in, recreates only an unlocked exact Git registry entry and verifies its committed checkout before target launch |
 | Compatibility | Declares Codex and Claude continuation capabilities and reports package-specific preserved, summarized, omitted, or blocking state in human/JSON form |
 | Continuation artifact | Produces bounded Markdown continuation state from a validated package without tool output, environment values, attachment payloads, or remote URLs |

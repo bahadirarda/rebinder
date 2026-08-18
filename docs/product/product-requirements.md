@@ -199,6 +199,31 @@ changed. Policy, observation, offer, and transition state MUST use private
 local storage where supported and MUST remain inspectable through human and
 JSON status output.
 
+### FR-018 — Authoritative hard-limit rescue
+
+The Claude continuity integration MUST record a rescue candidate when Claude
+Code's documented `StopFailure` hook reports the exact `rate_limit` error type.
+It MUST ignore other provider failures, MUST NOT treat provider error text as
+authorization, and MUST NOT persist `error_details` or rendered API-error text.
+A matching failure MUST reuse an actionable offer for the same active provider
+window or create one transcript-revision-scoped rescue. Repeated hook delivery
+MUST NOT create duplicate rescue records or notifications. An active decline
+MUST remain authoritative.
+
+Because `StopFailure` has no decision control, the hook MUST only record local
+state and emit an allowlisted terminal notification. It MUST NOT start a target
+process. After a `rebinder claude` source exits, the enclosing parent MUST ask
+for explicit consent in an interactive terminal with a negative default. A
+direct Claude launch MUST have an explicit `rebinder continuity rescue`
+fallback. Non-interactive rescue MUST fail unless the operator supplies an
+explicit consent flag.
+
+Rescue MUST recheck target availability before asking or transferring and MUST
+reuse the normal transfer adapter after acceptance. `resume` and `rescue` MUST
+refuse to start a target TUI while invoked inside a Rebinder-owned Claude
+process. Rescue state MUST remain private and visible through the normal
+continuity status ledger.
+
 ## Quality requirements
 
 - The interchange package SHOULD be human-readable and Git-friendly.

@@ -98,8 +98,12 @@ Claude Code status-line JSON
     -> immutable session + reset-window offer
     -> Claude plugin hook adds one consent request
     -> accept: arm offer / decline: suppress offer for window
+Claude Code StopFailure(error = rate_limit)
+    -> reuse active offer or create transcript-revision rescue
+    -> deduplicated terminal notification only
     -> source exits
     -> enclosing rebinder claude process
+    -> local explicit-consent prompt (safe default: no)
     -> existing Claude-to-Codex transfer adapter
     -> native Codex thread
 ```
@@ -108,6 +112,10 @@ The status-line process inherits a process-scoped launch ID from `rebinder
 claude`; the offer stores that ID so another concurrent Claude session cannot
 claim it. When there is no enclosing wrapper, the same accepted state is
 consumed by an explicit `rebinder continuity resume` command.
+For a hard failure, the same parent asks outside the failed model turn. A direct
+Claude launch uses `rebinder continuity rescue`; non-interactive rescue requires
+an explicit `--yes` flag. Neither path starts a target while the source process
+environment is still active.
 
 ## Core boundaries
 
@@ -203,13 +211,16 @@ and ambiguous registrations stop before provider launch. The module restores
 only committed checkout state.
 
 The continuity module owns integration installation, status-line observation,
-offer deduplication, consent transitions, and post-exit routing. It stores a
+offer deduplication, hard-failure rescue, consent transitions, and post-exit routing. It stores a
 receipt containing the exact previous Claude status-line JSON, installs only a
 fixed managed plugin file set, and uses create-new marker files for asked,
 accepted, declined, and completed transitions. It calls the existing transfer
 module after consent rather than importing provider history itself. A missing
 Claude.ai subscriber signal creates no observation-based offer; Codex
-authentication is checked before policy enablement and before offer creation.
+authentication is checked before policy enablement, offer creation, and rescue
+consent. The failure hook accepts only the documented `rate_limit` error class,
+does not store provider error text, and uses transcript metadata rather than
+transcript contents to deduplicate a rescue revision.
 
 ## CLI command boundaries
 
@@ -232,6 +243,11 @@ rebinder export --from <source> [session] --output <new-directory>
 rebinder continuity enable claude --to codex
     -> reversible personal Claude plugin + status-line observer
     -> consent-gated offer ledger
+
+rebinder continuity rescue [--offer <id>]
+    -> resolve a provider-reported rate-limit rescue
+    -> interactive consent, or explicit non-interactive --yes
+    -> normal transfer adapter after source exit
 
 rebinder claude [native arguments]
     -> provider process with continuity launch binding

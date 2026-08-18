@@ -112,6 +112,25 @@ specific paid entitlement from stored credentials: Claude's subscriber-only
 rate-limit field and Codex's active authentication mode are availability
 signals, not billing guarantees.
 
+Hard-limit rescue listens only for Claude Code's documented `StopFailure`
+event with the exact `rate_limit` error type. It ignores other API failures and
+does not persist `error_details` or the rendered provider error. The rescue ID
+uses session/workspace identity plus transcript path metadata and a
+process-scoped launch binding; Rebinder does not read transcript contents in the
+failure hook. Repeated matching events create one rescue marker and one
+allowlisted OSC/BEL terminal notification. An unexpired decline suppresses the
+same window even after a failure.
+
+`StopFailure` has no decision authority, so its hook cannot accept or launch a
+target. After Claude exits, an interactive Rebinder parent asks with a safe
+negative default. Direct launches use `rebinder continuity rescue`, and
+non-interactive operators must provide `--yes` as explicit consent. The CLI
+rejects both rescue and accepted-offer resume while it still has the
+Rebinder-owned Claude launch environment, preventing a target TUI from nesting
+inside the source process. Only after consent does the existing transfer
+adapter revalidate target authentication, source selection, and workspace
+constraints.
+
 You should receive an acknowledgement within seven days. Publication and fix
 timing depend on severity and whether a coordinated provider disclosure is
 required.
