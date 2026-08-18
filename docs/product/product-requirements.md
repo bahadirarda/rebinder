@@ -56,9 +56,11 @@ The first operational direction MUST discover local Claude Code sessions
 through Codex's supported external-agent API. A full transfer MUST import only
 the selected session. A context-safe handoff MUST create or resume a native
 Codex thread and inject the bounded checkpoint through supported Codex thread
-APIs. Both paths MUST obtain the target thread ID and resume that thread in the
-source session's recorded workspace. Rebinder MUST NOT directly mutate provider
-session stores or import credentials and configuration as a side effect.
+APIs. Both paths MUST obtain the target thread ID and open that thread from
+Rebinder in the source session's recorded workspace; a separate user-issued
+Codex resume command MUST NOT be required. Rebinder MUST NOT directly mutate
+provider session stores or import credentials and configuration as a side
+effect.
 
 When the source transcript has changed since a prior transfer, the bridge MUST
 use the target provider's checkpoint behavior rather than create an unrelated
@@ -80,15 +82,17 @@ The default transfer strategy MUST prevent a large imported transcript from
 immediately exhausting the target context window. Sources larger than 512 KiB
 MUST use a bounded handoff made from the latest Claude compact summary and
 recent visible user and assistant text. Thinking, tool calls, and tool results
-MUST NOT be copied into the handoff. Users MAY explicitly request full or
-handoff behavior.
+MUST NOT be copied into the handoff. Injected visible messages MUST retain their
+user or assistant role. Users MAY explicitly request full or handoff behavior.
 
 Derived handoffs MUST be append-only, keyed stably to the source path, private
 to the current user where permissions are available, and rejected when their
-target path is a symlink. Their source-hash-to-thread binding MUST survive a
+target path is a symlink. Their semantic-revision-to-thread binding MUST survive a
 failed attempt. An unchanged source MUST reuse its existing native Codex thread;
-a changed source MUST append and inject a new bounded checkpoint into that
-thread.
+metadata-only changes MUST NOT create a new checkpoint. A meaningful changed
+source MUST append and inject one new bounded checkpoint into that thread, then
+complete target-native compaction before Codex opens. If compaction fails after
+injection, a retry MUST NOT inject the same checkpoint again.
 
 ## Quality requirements
 

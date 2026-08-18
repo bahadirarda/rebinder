@@ -220,9 +220,12 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
         let size = prepared
             .source_size_bytes
             .map_or_else(|| "unknown size".to_owned(), human_bytes);
-        eprintln!("rebinder: bounded {size} source history before native Codex injection");
+        eprintln!("rebinder: bounded {size} source history and preserved conversation roles");
+        if prepared.compacted {
+            eprintln!("rebinder: compacted the updated handoff before opening Codex");
+        }
     }
-    eprintln!("rebinder: resuming in {}", prepared.cwd.display());
+    eprintln!("rebinder: opening Codex in {}", prepared.cwd.display());
 
     match launch_prepared_codex_session(&prepared, arguments.target_arguments) {
         Ok(status) => status

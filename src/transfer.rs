@@ -15,14 +15,15 @@ use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::handoff::{
-    FULL_IMPORT_MAX_SOURCE_BYTES, completed_handoff_thread, prepare_context_safe_handoff,
-    recommended_handoff, record_completed_handoff_binding, record_pending_handoff_binding,
-    source_size,
+    FULL_IMPORT_MAX_SOURCE_BYTES, HandoffMessage, HandoffMessageRole, completed_handoff_thread,
+    prepare_context_safe_handoff, recommended_handoff, record_completed_handoff_binding,
+    record_injected_handoff_binding, record_pending_handoff_binding, source_size,
 };
 
 const CLAUDE_CODE_SOURCE: &str = "claude-code";
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(180);
+const COMPACT_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// A Claude Code session that Codex can import or has already imported.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -68,6 +69,7 @@ pub struct PreparedCodexSession {
     pub cwd: PathBuf,
     pub codex_thread_id: String,
     pub imported: bool,
+    pub compacted: bool,
     pub strategy: ClaudeTransferStrategy,
     pub source_size_bytes: Option<u64>,
 }
@@ -162,19 +164,19 @@ pub fn prepare_claude_to_codex_with_strategy(
     };
     let source_size_bytes = selected.public.source_size_bytes;
 
-    let (codex_thread_id, imported) = match resolved_strategy {
+    let (codex_thread_id, imported, compacted) = match resolved_strategy {
         ClaudeTransferStrategy::Auto => unreachable!("auto strategy must resolve before import"),
         ClaudeTransferStrategy::Full => {
             if let Some(migration_item) = selected.migration_item.as_ref() {
                 let thread_id =
                     app_server.import_session(migration_item, &selected.public.source_path)?;
-                (thread_id, true)
+                (thread_id, true, false)
             } else {
                 let thread_id = selected
                     .full_import_thread_id
                     .clone()
                     .ok_or(TransferError::MissingCodexThread)?;
-                (thread_id, false)
+                (thread_id, false, false)
             }
         }
         ClaudeTransferStrategy::Handoff => {
@@ -185,12 +187,12 @@ pub fn prepare_claude_to_codex_with_strategy(
                 &selected.public.cwd,
             )
             .map_err(|error| TransferError::Handoff(error.to_string()))?;
-            if handoff.injected {
+            if handoff.binding.complete() {
                 let thread_id = handoff
                     .codex_thread_id
                     .clone()
                     .ok_or(TransferError::MissingCodexThread)?;
-                (thread_id, false)
+                (thread_id, false, false)
             } else {
                 let thread_id = if let Some(thread_id) = handoff.codex_thread_id.clone() {
                     app_server.resume_thread(&thread_id)?;
@@ -198,12 +200,22 @@ pub fn prepare_claude_to_codex_with_strategy(
                 } else {
                     app_server.start_thread(&selected.public.cwd)?
                 };
-                record_pending_handoff_binding(&handoff, &thread_id)
-                    .map_err(|error| TransferError::Handoff(error.to_string()))?;
-                app_server.inject_handoff(&thread_id, &handoff.content)?;
+                if !handoff.binding.injected() {
+                    record_pending_handoff_binding(&handoff, &thread_id)
+                        .map_err(|error| TransferError::Handoff(error.to_string()))?;
+                    app_server.inject_handoff(&thread_id, &handoff.messages)?;
+                    record_injected_handoff_binding(&handoff, &thread_id)
+                        .map_err(|error| TransferError::Handoff(error.to_string()))?;
+                }
+                let compacted = if handoff.binding.requires_compaction() {
+                    app_server.compact_thread(&thread_id)?;
+                    true
+                } else {
+                    false
+                };
                 record_completed_handoff_binding(&handoff, &thread_id)
                     .map_err(|error| TransferError::Handoff(error.to_string()))?;
-                (thread_id, true)
+                (thread_id, true, compacted)
             }
         }
     };
@@ -214,6 +226,7 @@ pub fn prepare_claude_to_codex_with_strategy(
         cwd: selected.public.cwd,
         codex_thread_id,
         imported,
+        compacted,
         strategy: resolved_strategy,
         source_size_bytes,
     })
@@ -705,25 +718,84 @@ impl CodexAppServer {
         Ok(())
     }
 
-    fn inject_handoff(&mut self, thread_id: &str, content: &str) -> Result<(), TransferError> {
+    fn inject_handoff(
+        &mut self,
+        thread_id: &str,
+        messages: &[HandoffMessage],
+    ) -> Result<(), TransferError> {
+        let items = messages
+            .iter()
+            .map(|message| {
+                let content_type = match message.role {
+                    HandoffMessageRole::User => "input_text",
+                    HandoffMessageRole::Assistant => "output_text",
+                };
+                json!({
+                    "type": "message",
+                    "role": message.role.wire_role(),
+                    "content": [{
+                        "type": content_type,
+                        "text": message.text
+                    }]
+                })
+            })
+            .collect::<Vec<_>>();
         self.request(
             6,
             "thread/inject_items",
             json!({
                 "threadId": thread_id,
-                "items": [{
-                    "type": "message",
-                    "role": "user",
-                    "content": [{
-                        "type": "input_text",
-                        "text": content
-                    }]
-                }]
+                "items": items
             }),
             RPC_TIMEOUT,
             "context-safe handoff injection",
         )?;
         Ok(())
+    }
+
+    fn compact_thread(&mut self, thread_id: &str) -> Result<(), TransferError> {
+        self.request(
+            7,
+            "thread/compact/start",
+            json!({ "threadId": thread_id }),
+            RPC_TIMEOUT,
+            "context-safe handoff compaction start",
+        )?;
+        let completed = self.receive_matching(
+            |message| {
+                message.get("method").and_then(Value::as_str) == Some("turn/completed")
+                    && message.pointer("/params/threadId").and_then(Value::as_str)
+                        == Some(thread_id)
+            },
+            COMPACT_TIMEOUT,
+            "context-safe handoff compaction completion",
+        )?;
+        if completed
+            .pointer("/params/turn/status")
+            .and_then(Value::as_str)
+            == Some("completed")
+        {
+            return Ok(());
+        }
+        let message = completed
+            .pointer("/params/turn/error/message")
+            .and_then(Value::as_str)
+            .or_else(|| {
+                completed
+                    .pointer("/params/turn/error/additionalDetails")
+                    .and_then(Value::as_str)
+            })
+            .or_else(|| {
+                completed
+                    .pointer("/params/turn/status")
+                    .and_then(Value::as_str)
+            })
+            .unwrap_or("Codex compaction did not complete")
+            .to_owned();
+        Err(TransferError::AppServerRejected {
+            operation: "context-safe handoff compaction",
+            message,
+        })
     }
 
     fn import_session(

@@ -24,8 +24,9 @@ README examples and release notes MUST preserve this distinction.
 - Claude Code session discovery through the Codex external-agent API
 - Exact Claude session selection and current-workspace latest-session selection
 - Claude-to-Codex native full import and bounded native-thread handoff paths
-- Retry-safe handoff binding and repeat checkpoint injection
-- Native Codex resume in the Claude session's recorded workspace or worktree
+- Role-preserving handoff injection and semantic checkpoint revisions
+- Retry-safe injection/compaction ledger and native repeat-update compaction
+- Rebinder-owned Codex opening in the Claude session's recorded workspace or worktree
 - Fail-closed handling for missing workspaces and unsupported directions
 - Human and JSON session inventory output
 - Calendar release identity `0.YYYYMMDD.REVISION`
@@ -41,7 +42,9 @@ auto|full|handoff] -- [target args]` is
 operational for local Claude Code sessions detected by the installed Codex
 app-server. Rebinder selects only the `SESSIONS` migration item, resolves a
 native Codex thread ID through the full-import or bounded-handoff path, verifies
-that the recorded workspace exists, and runs `codex resume` in that directory.
+that the recorded workspace exists, and opens Codex on the bound thread in that
+directory. The user stays in the `rebinder transfer` workflow and does not run
+a separate Codex resume command.
 
 Omitting the session ID in an interactive terminal opens an arrow-key session
 picker. Escape cancels without importing. Non-interactive omission selects only
@@ -51,13 +54,20 @@ sessions claude`.
 
 The automatic strategy fully imports sources up to 512 KiB. Larger sources use
 an append-only, context-safe handoff built from the latest compact summary and
-bounded recent visible messages. This keeps prior oversized imports intact
-while creating or reusing a separate resumable Codex thread.
+bounded recent visible messages. Injection retains user and assistant roles.
+Semantic revisions ignore unrelated source metadata changes; meaningful repeat
+updates are compacted through Codex before Rebinder opens the existing thread.
+This keeps prior oversized imports intact while creating or reusing a separate
+native Codex thread.
+
+The role-preserving handoff format does not append onto a legacy flattened
+handoff thread. Rebinder leaves that thread intact, creates one clean bounded
+thread during the upgrade, and reuses the new binding afterward.
 
 Rebinder never edits Claude transcript files or writes directly into Codex's
 private session store. It stores bounded handoff input and its retry-safe
 binding in its own platform data directory; Codex owns native thread creation,
-history injection, full-import conversion, and session persistence.
+history injection, compaction, full-import conversion, and session persistence.
 
 ## Pending MVP capabilities
 
