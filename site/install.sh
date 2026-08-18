@@ -143,19 +143,25 @@ printf '%s\n' "$checksum" | grep -Eq '^[a-f0-9]{64}$' \
   || fail "release checksum is missing or invalid for $archive"
 
 say "verifying SHA-256 checksum"
+actual_checksum=""
 if command -v sha256sum >/dev/null 2>&1; then
-  (
-    cd "$temporary_dir"
-    printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --status
-  ) || fail "checksum verification failed"
-elif command -v shasum >/dev/null 2>&1; then
-  (
-    cd "$temporary_dir"
-    printf '%s  %s\n' "$checksum" "$archive" | shasum -a 256 --check --status
-  ) || fail "checksum verification failed"
-else
-  fail "sha256sum or shasum is required to verify the release"
+  actual_checksum="$(
+    sha256sum "$temporary_dir/$archive" 2>/dev/null | awk 'NR == 1 { print $1 }'
+  )"
 fi
+
+if ! printf '%s\n' "$actual_checksum" | grep -Eq '^[a-f0-9]{64}$'; then
+  actual_checksum=""
+  if command -v shasum >/dev/null 2>&1; then
+    actual_checksum="$(
+      shasum -a 256 "$temporary_dir/$archive" 2>/dev/null | awk 'NR == 1 { print $1 }'
+    )"
+  fi
+fi
+
+printf '%s\n' "$actual_checksum" | grep -Eq '^[a-f0-9]{64}$' ||
+  fail "sha256sum or shasum is required to verify the release"
+[ "$actual_checksum" = "$checksum" ] || fail "checksum verification failed"
 
 tar -xzf "$temporary_dir/$archive" -C "$temporary_dir"
 staging="rebinder-$release_tag-$target"

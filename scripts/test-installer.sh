@@ -51,4 +51,63 @@ reported="$($install_dir/rebinder --version)"
   exit 1
 }
 
+mock_bin="$test_root/mock-bin"
+portable_install_dir="$test_root/portable-bin"
+real_sha256sum="$(command -v sha256sum)"
+mkdir -p "$mock_bin"
+cat > "$mock_bin/sha256sum" <<'EOF'
+#!/bin/sh
+
+if [ "$#" -ne 1 ]; then
+  printf '%s\n' "usage: sha256sum [-bctwz] [files ...]" >&2
+  exit 1
+fi
+
+case "$1" in
+  -*)
+    printf '%s\n' "usage: sha256sum [-bctwz] [files ...]" >&2
+    exit 1
+    ;;
+esac
+
+exec "$REBINDER_TEST_REAL_SHA256SUM" "$1"
+EOF
+chmod +x "$mock_bin/sha256sum"
+
+PATH="$mock_bin:$PATH" \
+REBINDER_TEST_REAL_SHA256SUM="$real_sha256sum" \
+REBINDER_VERSION="$tag" \
+REBINDER_INSTALL_DIR="$portable_install_dir" \
+REBINDER_TEST_RELEASE_DIR="$release_dir" \
+  sh "$repository_root/site/install.sh" >/dev/null
+
+portable_reported="$($portable_install_dir/rebinder --version)"
+[ "$portable_reported" = "rebinder $version" ] || {
+  printf '%s\n' "unexpected portable-checksum installed version: $portable_reported" >&2
+  exit 1
+}
+
+tampered_release_dir="$test_root/tampered-release"
+tampered_install_dir="$test_root/tampered-bin"
+tampered_log="$test_root/tampered.log"
+cp -R "$release_dir" "$tampered_release_dir"
+printf '%s' "tampered" >> "$tampered_release_dir/$staging.tar.gz"
+
+set +e
+REBINDER_VERSION="$tag" \
+REBINDER_INSTALL_DIR="$tampered_install_dir" \
+REBINDER_TEST_RELEASE_DIR="$tampered_release_dir" \
+  sh "$repository_root/site/install.sh" >"$tampered_log" 2>&1
+tampered_status=$?
+set -e
+
+[ "$tampered_status" -ne 0 ] || {
+  printf '%s\n' "tampered archive unexpectedly passed checksum verification" >&2
+  exit 1
+}
+grep -Fq "checksum verification failed" "$tampered_log" || {
+  printf '%s\n' "tampered archive did not report a checksum failure" >&2
+  exit 1
+}
+
 printf '%s\n' "Unix installer acceptance passed."
