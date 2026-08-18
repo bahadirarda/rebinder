@@ -6,6 +6,12 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 
 ## [Unreleased]
 
+## [0.20260818.6] - 2026-08-18
+
+### Changed
+
+- Add end-to-end Codex-to-Claude transfer with canonical compatibility assessment, bounded private context, deterministic native Claude sessions, and revision-safe repeat resume.
+
 ## [0.20260818.5] - 2026-08-18
 
 ### Changed
@@ -91,7 +97,8 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 - Add the Calendar Versioning release ledger, native distribution foundation,
   and professional MVP documentation structure.
 
-[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.5...HEAD
+[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.6...HEAD
+[0.20260818.6]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.5...v0.20260818.6
 [0.20260818.5]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.4...v0.20260818.5
 [0.20260818.4]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.3...v0.20260818.4
 [0.20260818.3]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.2...v0.20260818.3
