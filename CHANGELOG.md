@@ -6,6 +6,14 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 
 ## [Unreleased]
 
+## [0.20260818.4] - 2026-08-18
+
+### Changed
+
+- Add target capability declarations, package-specific compatibility reports,
+  and bounded provider-neutral continuation artifacts with explicit information
+  loss and safe create-new output behavior.
+
 ## [0.20260818.3] - 2026-08-18
 
 ### Changed
@@ -77,7 +85,8 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 - Add the Calendar Versioning release ledger, native distribution foundation,
   and professional MVP documentation structure.
 
-[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.3...HEAD
+[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.4...HEAD
+[0.20260818.4]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.3...v0.20260818.4
 [0.20260818.3]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.2...v0.20260818.3
 [0.20260818.2]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.1...v0.20260818.2
 [0.20260818.1]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.0...v0.20260818.1
