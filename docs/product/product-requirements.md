@@ -104,6 +104,21 @@ activation consumes target-model tokens. If activation finishes before its
 ledger completion record is persisted, a retry MUST detect the matching
 completed turn and MUST NOT create a duplicate brief.
 
+### FR-013 — Capability-aware continuation artifacts
+
+Every target adapter MUST publish a machine-readable declaration that labels
+canonical capabilities as preserved, summarized, or omitted. Compatibility
+assessment MUST validate the package first, evaluate capabilities actually used
+by that package, distinguish blocking invalidity from non-blocking information
+loss, and support human and JSON output without launching a provider.
+
+The provider-neutral artifact generator MUST retain handoff guidance, task
+state, recorded workspace and repository facts, provenance, and bounded recent
+visible text. It MUST NOT copy tool-result payloads, attachment payloads,
+environment values, or repository remote URLs. It MUST NOT overwrite an
+existing output path and MUST use private file permissions where the platform
+supports them.
+
 ## Quality requirements
 
 - The interchange package SHOULD be human-readable and Git-friendly.

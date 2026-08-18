@@ -24,6 +24,17 @@ Source Harness
     -> Target Harness Continuation Artifact
 ```
 
+The implemented package-to-artifact slice now crosses the target-independent
+half of that pipeline:
+
+```text
+Validated Interchange Package
+    -> Target capability declaration
+    -> Package feature analysis
+    -> Compatibility report (compatible | compatible_with_loss | incompatible)
+    -> Bounded Markdown continuation artifact
+```
+
 The operational Claude-to-Codex MVP uses a target-native bridge exposed by
 Codex instead of writing Codex's private session representation:
 
@@ -99,6 +110,16 @@ The append-only binding ledger records `pending`, `injected`, `ready`,
 `activating`, and `completed` phases. If the final ledger write is interrupted,
 `thread/read` locates the completed turn by its semantic-revision marker rather
 than producing a duplicate. Neither path writes Codex session files directly.
+
+The compatibility module remains provider-neutral. It loads a package only
+after structural validation, evaluates only capabilities used by that package,
+and renders target-bound Markdown without launching either harness. Capability
+declarations distinguish preserved, summarized, and omitted state. Invalid
+packages are blocking; declared information loss is non-blocking and remains
+machine-readable. Artifact creation uses create-new semantics, mode `0600` on
+Unix, and a fixed visible-conversation budget. Provider-private tool inputs,
+tool-result payloads, attachments, environment values, and remote URLs do not
+enter the artifact.
 
 ## CLI command boundaries
 

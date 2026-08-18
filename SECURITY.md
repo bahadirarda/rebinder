@@ -38,6 +38,15 @@ as potentially sensitive data. Removing a handoff file removes Rebinder's
 bounded local copy and retry binding, but does not remove its native Codex
 thread.
 
+Capability assessment validates the package before reading portable state and
+reports active information-loss boundaries without launching a provider.
+Provider-neutral continuation artifacts deliberately omit tool-result payloads,
+attachments, environment values, and repository remote URLs. They retain
+visible conversation, handoff, task, workspace, repository, and provenance
+facts, which can still be sensitive. Artifact output never overwrites an
+existing path and is created with mode `0600` on Unix. Users must review the
+result before sharing or passing it to another harness.
+
 You should receive an acknowledgement within seven days. Publication and fix
 timing depend on severity and whether a coordinated provider disclosure is
 required.

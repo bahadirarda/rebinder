@@ -8,9 +8,11 @@ use std::{
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use dialoguer::{Select, theme::ColorfulTheme};
 use rebinder::{
-    ClaudeSession, ClaudeTransferStrategy, Harness, Inspection, ValidationReport,
-    discover_claude_sessions, inspect_package, launch_prepared_codex_session,
-    prepare_claude_to_codex_with_strategy, run_harness, validate_package,
+    CapabilitySupport, ClaudeSession, ClaudeTransferStrategy, CompatibilityFindingSeverity,
+    CompatibilityReport, Harness, Inspection, ProviderCapabilities, ValidationReport,
+    assess_package_compatibility, discover_claude_sessions, inspect_package,
+    launch_prepared_codex_session, prepare_claude_to_codex_with_strategy,
+    prepare_continuation_artifact, provider_capabilities, run_harness, validate_package,
 };
 
 #[derive(Debug, Parser)]
@@ -34,6 +36,19 @@ enum Command {
     Transfer(TransferArgs),
     /// List sessions available to a provider adapter.
     Sessions(SessionsArgs),
+    /// Show the continuation capabilities declared by a target adapter.
+    Capabilities {
+        /// Target harness whose adapter capabilities should be reported.
+        #[arg(value_enum)]
+        harness: HarnessArgument,
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Report information preserved or lost when a package continues in a target harness.
+    Compatibility(CompatibilityArgs),
+    /// Produce a bounded provider-neutral continuation artifact from a valid package.
+    Artifact(ArtifactArgs),
     /// Validate the structure and integrity of a session package.
     Validate {
         /// Path to an unpacked Rebinder session package.
@@ -85,6 +100,33 @@ struct SessionsArgs {
     #[arg(value_enum)]
     harness: HarnessArgument,
     /// Emit machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct CompatibilityArgs {
+    /// Path to an unpacked Rebinder session package.
+    package: PathBuf,
+    /// Target harness that will consume the continuation state.
+    #[arg(short = 't', long, value_enum)]
+    to: HarnessArgument,
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ArtifactArgs {
+    /// Path to an unpacked Rebinder session package.
+    package: PathBuf,
+    /// Target harness that will consume the artifact.
+    #[arg(short = 't', long, value_enum)]
+    to: HarnessArgument,
+    /// New artifact path; existing files are never overwritten.
+    #[arg(short, long)]
+    output: PathBuf,
+    /// Emit machine-readable result metadata.
     #[arg(long)]
     json: bool,
 }
@@ -144,6 +186,17 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         Command::Sessions(arguments) => list_sessions(&arguments),
+        Command::Capabilities { harness, json } => {
+            let capabilities = provider_capabilities(harness.into());
+            if json {
+                print_json(&capabilities);
+            } else {
+                print_capabilities(&capabilities);
+            }
+            ExitCode::SUCCESS
+        }
+        Command::Compatibility(arguments) => compatibility(&arguments),
+        Command::Artifact(arguments) => artifact(&arguments),
         Command::Validate { package, json } => {
             let report = validate_package(package);
             if json {
@@ -367,6 +420,53 @@ fn single_line(value: &str) -> String {
         .collect()
 }
 
+fn compatibility(arguments: &CompatibilityArgs) -> ExitCode {
+    match assess_package_compatibility(&arguments.package, arguments.to.into()) {
+        Ok(report) => {
+            let can_continue = report.can_continue;
+            if arguments.json {
+                print_json(&report);
+            } else {
+                print_compatibility(&report);
+            }
+            validity_exit_code(can_continue)
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn artifact(arguments: &ArtifactArgs) -> ExitCode {
+    match prepare_continuation_artifact(&arguments.package, arguments.to.into(), &arguments.output)
+    {
+        Ok(prepared) => {
+            if arguments.json {
+                print_json(&prepared);
+            } else {
+                println!(
+                    "wrote {} continuation artifact to {} ({} bytes, sha256 {})",
+                    prepared.target_provider,
+                    prepared.path.display(),
+                    prepared.bytes,
+                    prepared.sha256
+                );
+                println!(
+                    "compatibility: {} with {} declared information-loss finding(s)",
+                    prepared.compatibility.level.as_str(),
+                    prepared.compatibility.findings.len()
+                );
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::from(2)
+        }
+    }
+}
+
 fn launch_harness(harness: Harness, arguments: Vec<OsString>) -> ExitCode {
     match run_harness(harness, arguments) {
         Ok(status) => status
@@ -462,6 +562,57 @@ fn print_inspection(inspection: &Inspection) {
         summary.provenance.transformations,
         summary.provenance.redacted_values
     );
+}
+
+fn print_capabilities(capabilities: &ProviderCapabilities) {
+    println!(
+        "{} target adapter {} ({})",
+        capabilities.provider, capabilities.adapter_version, capabilities.artifact_format
+    );
+    for capability in &capabilities.capabilities {
+        println!(
+            "{}\t{}\t{}",
+            capability.capability,
+            capability_support(capability.support),
+            capability.details
+        );
+    }
+}
+
+fn print_compatibility(report: &CompatibilityReport) {
+    println!(
+        "compatibility: {} ({} -> {})",
+        report.level.as_str(),
+        report
+            .source_provider
+            .as_deref()
+            .unwrap_or("invalid package"),
+        report.target.provider
+    );
+    if report.findings.is_empty() {
+        println!("no active information-loss findings");
+        return;
+    }
+    for finding in &report.findings {
+        let severity = match finding.severity {
+            CompatibilityFindingSeverity::InformationLoss => "information_loss",
+            CompatibilityFindingSeverity::Blocking => "blocking",
+        };
+        let path = finding
+            .path
+            .as_deref()
+            .map(|path| format!(" [{path}]"))
+            .unwrap_or_default();
+        println!("{severity} {}{path}: {}", finding.code, finding.message);
+    }
+}
+
+fn capability_support(support: CapabilitySupport) -> &'static str {
+    match support {
+        CapabilitySupport::Preserved => "preserved",
+        CapabilitySupport::Summarized => "summarized",
+        CapabilitySupport::Omitted => "omitted",
+    }
 }
 
 fn validity_exit_code(valid: bool) -> ExitCode {
