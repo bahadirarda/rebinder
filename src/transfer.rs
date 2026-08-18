@@ -20,6 +20,9 @@ use crate::handoff::{
     record_completed_handoff_binding, record_injected_handoff_binding,
     record_pending_handoff_binding, record_ready_handoff_binding, source_size,
 };
+use crate::worktree::{
+    RecoveredWorktree, WorktreeRecovery, WorktreeRecoveryError, recover_registered_worktree,
+};
 
 const CLAUDE_CODE_SOURCE: &str = "claude-code";
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -75,6 +78,7 @@ pub struct PreparedCodexSession {
     pub activated: bool,
     pub strategy: ClaudeTransferStrategy,
     pub source_size_bytes: Option<u64>,
+    pub recovered_worktree: Option<RecoveredWorktree>,
 }
 
 /// Errors returned by Claude-to-Codex discovery and transfer.
@@ -111,6 +115,8 @@ pub enum TransferError {
     AmbiguousSession(String),
     #[error("Claude Code session `{session_id}` points to missing workspace `{cwd}`")]
     MissingWorkspace { session_id: String, cwd: PathBuf },
+    #[error("cannot recover the missing Claude workspace: {0}")]
+    WorktreeRecovery(#[from] WorktreeRecoveryError),
     #[error("Codex reported a session import failure: {0}")]
     ImportFailed(String),
     #[error("cannot prepare a context-safe Claude handoff: {0}")]
@@ -151,17 +157,40 @@ pub fn prepare_claude_to_codex_with_strategy(
     session_id: Option<&str>,
     strategy: ClaudeTransferStrategy,
 ) -> Result<PreparedCodexSession, TransferError> {
+    prepare_claude_to_codex_with_strategy_and_recovery(
+        session_id,
+        strategy,
+        &WorktreeRecovery::Disabled,
+    )
+}
+
+/// Import a Claude Code session and optionally rebuild its exact registered worktree.
+pub fn prepare_claude_to_codex_with_strategy_and_recovery(
+    session_id: Option<&str>,
+    strategy: ClaudeTransferStrategy,
+    recovery: &WorktreeRecovery,
+) -> Result<PreparedCodexSession, TransferError> {
     let current_dir = std::env::current_dir().map_err(TransferError::CurrentDirectory)?;
     let mut app_server = CodexAppServer::launch(OsStr::new("codex"))?;
     let inventory = load_inventory(&mut app_server, &current_dir)?;
     let selected = select_session(inventory, session_id, &current_dir)?;
 
-    if !selected.public.cwd.is_dir() {
-        return Err(TransferError::MissingWorkspace {
-            session_id: selected.public.id,
-            cwd: selected.public.cwd,
-        });
-    }
+    let recovered_worktree = if selected.public.cwd.is_dir() {
+        None
+    } else {
+        match recovery {
+            WorktreeRecovery::Disabled => {
+                return Err(TransferError::MissingWorkspace {
+                    session_id: selected.public.id,
+                    cwd: selected.public.cwd,
+                });
+            }
+            WorktreeRecovery::Registered { repository } => Some(recover_registered_worktree(
+                &selected.public.cwd,
+                repository.as_deref(),
+            )?),
+        }
+    };
 
     let resolved_strategy = match strategy {
         ClaudeTransferStrategy::Auto => selected.public.recommended_strategy,
@@ -258,6 +287,7 @@ pub fn prepare_claude_to_codex_with_strategy(
         activated,
         strategy: resolved_strategy,
         source_size_bytes,
+        recovered_worktree,
     })
 }
 

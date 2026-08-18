@@ -10,9 +10,10 @@ use dialoguer::{Select, theme::ColorfulTheme};
 use rebinder::{
     CapabilitySupport, ClaudeContinuationState, ClaudeSession, ClaudeTransferStrategy,
     CompatibilityFindingSeverity, CompatibilityReport, ExportableSession, Harness, Inspection,
-    ProviderCapabilities, ValidationReport, assess_package_compatibility, discover_claude_sessions,
-    discover_exportable_sessions, export_session, inspect_package, launch_prepared_claude_session,
-    launch_prepared_codex_session, prepare_claude_to_codex_with_strategy, prepare_codex_to_claude,
+    ProviderCapabilities, ValidationReport, WorktreeRecovery, assess_package_compatibility,
+    discover_claude_sessions, discover_exportable_sessions, export_session, inspect_package,
+    launch_prepared_claude_session, launch_prepared_codex_session,
+    prepare_claude_to_codex_with_strategy_and_recovery, prepare_codex_to_claude_with_recovery,
     prepare_continuation_artifact, provider_capabilities, run_harness, validate_package,
 };
 
@@ -92,6 +93,12 @@ struct TransferArgs {
     /// Transfer policy: choose automatically, import the full transcript, or use a bounded handoff.
     #[arg(long, value_enum, default_value_t = TransferStrategyArgument::Auto)]
     strategy: TransferStrategyArgument,
+    /// Recreate a missing workspace only when Git still registers its exact worktree.
+    #[arg(long)]
+    recover_worktree: bool,
+    /// Existing main worktree used to verify recovery; useful for sibling worktrees.
+    #[arg(long, value_name = "REPOSITORY", requires = "recover_worktree")]
+    worktree_repository: Option<PathBuf>,
     /// Arguments passed to the target harness after migration.
     #[arg(last = true, value_name = "TARGET_ARGS", allow_hyphen_values = true)]
     target_arguments: Vec<OsString>,
@@ -240,6 +247,7 @@ fn main() -> ExitCode {
 }
 
 fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
+    let recovery = worktree_recovery(&arguments);
     let mut session_id = arguments.session_id;
     if session_id.is_none() && io::stdin().is_terminal() && io::stderr().is_terminal() {
         session_id = match pick_claude_session() {
@@ -255,9 +263,10 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
         };
     }
 
-    let prepared = match prepare_claude_to_codex_with_strategy(
+    let prepared = match prepare_claude_to_codex_with_strategy_and_recovery(
         session_id.as_deref(),
         arguments.strategy.into(),
+        &recovery,
     ) {
         Ok(prepared) => prepared,
         Err(error) => {
@@ -265,6 +274,10 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    if let Some(worktree) = &prepared.recovered_worktree {
+        print_recovered_worktree(worktree);
+    }
 
     match (prepared.strategy, prepared.imported) {
         (ClaudeTransferStrategy::Handoff, true) => eprintln!(
@@ -313,6 +326,7 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
 }
 
 fn transfer_codex_to_claude(arguments: TransferArgs) -> ExitCode {
+    let recovery = worktree_recovery(&arguments);
     if arguments.strategy != TransferStrategyArgument::Auto {
         eprintln!(
             "error: --strategy applies only to Claude-to-Codex transfer; Codex-to-Claude always uses a bounded canonical artifact"
@@ -330,13 +344,16 @@ fn transfer_codex_to_claude(arguments: TransferArgs) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let prepared = match prepare_codex_to_claude(&session_id) {
+    let prepared = match prepare_codex_to_claude_with_recovery(&session_id, &recovery) {
         Ok(prepared) => prepared,
         Err(error) => {
             eprintln!("error: {error}");
             return ExitCode::from(2);
         }
     };
+    if let Some(worktree) = &prepared.recovered_worktree {
+        print_recovered_worktree(worktree);
+    }
     match prepared.state {
         ClaudeContinuationState::New => eprintln!(
             "rebinder: prepared Codex session {} as new Claude session {}",
@@ -370,6 +387,27 @@ fn transfer_codex_to_claude(arguments: TransferArgs) -> ExitCode {
             ExitCode::from(127)
         }
     }
+}
+
+fn worktree_recovery(arguments: &TransferArgs) -> WorktreeRecovery {
+    if arguments.recover_worktree {
+        WorktreeRecovery::registered(arguments.worktree_repository.clone())
+    } else {
+        WorktreeRecovery::Disabled
+    }
+}
+
+fn print_recovered_worktree(worktree: &rebinder::RecoveredWorktree) {
+    let reference = worktree.branch.as_deref().unwrap_or(&worktree.head);
+    eprintln!(
+        "rebinder: recreated registered worktree {} at {} from {}",
+        reference,
+        worktree.path.display(),
+        worktree.repository.display()
+    );
+    eprintln!(
+        "rebinder: only committed Git state was recoverable; uncommitted changes are not restored"
+    );
 }
 
 fn pick_claude_session() -> Result<Option<String>, String> {

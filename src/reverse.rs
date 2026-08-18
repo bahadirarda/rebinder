@@ -17,6 +17,9 @@ use crate::{
     export::{ExportError, export_session, local_claude_session_path},
     harness::Harness,
     model::{Session, WorkspaceState},
+    worktree::{
+        RecoveredWorktree, WorktreeRecovery, WorktreeRecoveryError, recover_registered_worktree,
+    },
 };
 
 const MAX_ACTIVATION_ARTIFACT_BYTES: usize = 512 * 1024;
@@ -41,6 +44,7 @@ pub struct PreparedClaudeSession {
     pub source_revision: String,
     pub state: ClaudeContinuationState,
     pub compatibility: CompatibilityReport,
+    pub recovered_worktree: Option<RecoveredWorktree>,
     #[serde(skip_serializing)]
     artifact: Option<String>,
 }
@@ -68,6 +72,16 @@ pub enum ReverseTransferError {
     MissingWorkspace { session_id: String, cwd: PathBuf },
     #[error("Codex session `{session_id}` has non-absolute workspace `{cwd}`")]
     UnsafeWorkspace { session_id: String, cwd: PathBuf },
+    #[error(
+        "Codex session `{session_id}` changed workspace during recovery from `{before}` to `{after}`"
+    )]
+    WorkspaceChanged {
+        session_id: String,
+        before: PathBuf,
+        after: PathBuf,
+    },
+    #[error("cannot recover the missing Codex workspace: {0}")]
+    WorktreeRecovery(#[from] WorktreeRecoveryError),
     #[error("cannot create a private transfer staging directory: {0}")]
     CreateStage(#[source] std::io::Error),
     #[error("cannot write private Claude continuation context `{path}`: {source}")]
@@ -88,8 +102,16 @@ pub enum ReverseTransferError {
 pub fn prepare_codex_to_claude(
     source_session_id: &str,
 ) -> Result<PreparedClaudeSession, ReverseTransferError> {
+    prepare_codex_to_claude_with_recovery(source_session_id, &WorktreeRecovery::Disabled)
+}
+
+/// Prepare a Codex continuation and optionally rebuild its exact registered worktree.
+pub fn prepare_codex_to_claude_with_recovery(
+    source_session_id: &str,
+    recovery: &WorktreeRecovery,
+) -> Result<PreparedClaudeSession, ReverseTransferError> {
     let temporary = TransferStage::create()?;
-    let package = temporary.path().join("package");
+    let mut package = temporary.path().join("package");
     export_session(Harness::Codex, source_session_id, &package)?;
 
     let session_path = package.join("session.json");
@@ -103,11 +125,36 @@ pub fn prepare_codex_to_claude(
             cwd,
         });
     }
-    if !cwd.is_dir() {
-        return Err(ReverseTransferError::MissingWorkspace {
-            session_id: source_session_id.to_owned(),
-            cwd,
-        });
+    let recovered_worktree = if cwd.is_dir() {
+        None
+    } else {
+        match recovery {
+            WorktreeRecovery::Disabled => {
+                return Err(ReverseTransferError::MissingWorkspace {
+                    session_id: source_session_id.to_owned(),
+                    cwd,
+                });
+            }
+            WorktreeRecovery::Registered { repository } => {
+                Some(recover_registered_worktree(&cwd, repository.as_deref())?)
+            }
+        }
+    };
+
+    if recovered_worktree.is_some() {
+        let refreshed_package = temporary.path().join("recovered-package");
+        export_session(Harness::Codex, source_session_id, &refreshed_package)?;
+        let refreshed_workspace: WorkspaceState =
+            read_json(&refreshed_package.join("workspace-state.json"))?;
+        let refreshed_cwd = PathBuf::from(refreshed_workspace.cwd);
+        if refreshed_cwd != cwd {
+            return Err(ReverseTransferError::WorkspaceChanged {
+                session_id: source_session_id.to_owned(),
+                before: cwd,
+                after: refreshed_cwd,
+            });
+        }
+        package = refreshed_package;
     }
 
     let source_revision = package_revision(&package)?;
@@ -145,6 +192,7 @@ pub fn prepare_codex_to_claude(
         source_revision,
         state: continuation_state,
         compatibility: prepared_artifact.compatibility,
+        recovered_worktree,
         artifact: (continuation_state != ClaudeContinuationState::Unchanged).then_some(artifact),
     })
 }

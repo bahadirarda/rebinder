@@ -66,7 +66,8 @@ configuration as a side effect.
 When the source transcript has changed since a prior transfer, the bridge MUST
 use the target provider's checkpoint behavior rather than create an unrelated
 duplicate. When the recorded workspace is missing, the bridge MUST stop before
-starting Codex.
+starting Codex unless the user explicitly requests recovery that satisfies
+FR-016.
 
 ### FR-011 — Interactive source selection
 
@@ -152,6 +153,22 @@ be injected again; a changed revision MUST update the existing target session.
 Activation MUST request a visible continuation brief without tool use and MUST
 disclose target-model token consumption. Rebinder MUST reject target arguments
 that conflict with its target session binding.
+
+### FR-016 — Safe registered-worktree recovery
+
+Both transfer directions MUST fail closed on a missing recorded workspace by
+default. Recovery MUST require an explicit `--recover-worktree` option and MUST
+operate only when a local Git repository still reports the exact missing path
+from its worktree registry. Users MUST be able to identify the owning main
+worktree with `--worktree-repository` when bounded automatic discovery is
+insufficient or ambiguous.
+
+The recovery adapter MUST reject relative targets, existing targets, missing
+parents, immediate symlink parents, locked registrations, missing commits,
+ambiguous repository matches, and branch movement during the operation. It
+MUST NOT clone, fetch, unlock, overwrite, or claim to recover uncommitted state.
+After `git worktree add`, it MUST verify the recorded commit, attached branch
+when present, and common Git directory before a provider is launched.
 
 ## Quality requirements
 

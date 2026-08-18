@@ -159,7 +159,7 @@
             <div class="transfer-preview">
               <div><span>02 / Cross-harness transfer</span><strong>both directions live</strong></div>
               <code>rebinder transfer --from codex --to claude -- --model opus</code>
-              <p>Canonical checkpoints preserve visible roles, declare losses, and open a bound native target session. Missing-worktree reconstruction is the remaining roadmap boundary.</p>
+              <p>Canonical checkpoints preserve visible roles and declare losses. Explicit <code>--recover-worktree</code> can rebuild an exact unlocked Git registry entry before target launch.</p>
             </div>
           </div>
         </div>
@@ -183,7 +183,8 @@
               Discover a supported local Claude Code or Codex session, choose it interactively,
               and continue in the other harness. Each direction uses the target's supported APIs,
               a bounded checkpoint where needed, and a visible continuation brief. No direct
-              writes to either provider's private session store.
+              writes to either provider's private session store. Missing worktrees fail closed by
+              default and require explicit, registry-verified recovery.
             </p>
           </div>
 
@@ -206,7 +207,7 @@
               <div class="command-card-head"><span>Transfer</span><span>reverse</span></div>
               <h3>Continue natively in Claude.</h3>
               <div class="code-line"><code>rebinder transfer --from codex --to claude</code><button type="button" data-copy-value="rebinder transfer --from codex --to claude" aria-label="Copy interactive Codex to Claude transfer example">Copy</button></div>
-              <p>Use <code>rebinder sessions codex</code> to inspect sources, then render a private bounded checkpoint and create or resume its deterministic native Claude session.</p>
+              <p>Use <code>rebinder sessions codex</code> to inspect sources, then render a private bounded checkpoint and create or resume its deterministic native Claude session. Add <code>--recover-worktree</code> only for a missing registered checkout.</p>
             </article>
 
             <article class="command-card command-card-blue" data-reveal>

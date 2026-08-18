@@ -28,6 +28,27 @@ fn validate_command_supports_json_output() {
 }
 
 #[test]
+fn worktree_repository_hint_requires_explicit_recovery() {
+    let output = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "transfer",
+            "--from",
+            "codex",
+            "--to",
+            "claude",
+            "thread-1",
+            "--worktree-repository",
+            "/tmp/repository",
+        ])
+        .output()
+        .expect("parse recovery options");
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--recover-worktree"));
+    assert!(stderr.contains("required"));
+}
+
+#[test]
 fn capabilities_and_compatibility_are_machine_readable() {
     let capabilities = Command::new(env!("CARGO_BIN_EXE_rebinder"))
         .args(["capabilities", "claude", "--json"])
@@ -333,12 +354,39 @@ fn codex_to_claude_creates_then_idempotently_resumes_a_native_session() {
 
     let fixture = tempfile::tempdir().expect("create reverse transfer fixture");
     let bin = fixture.path().join("bin");
-    let workspace = fixture.path().join("workspace");
+    let repository = fixture.path().join("repository");
+    let worktree_parent = fixture.path().join("worktrees");
+    let workspace = worktree_parent.join("reverse-session");
     let claude_config = fixture.path().join("claude");
     let arguments_log = fixture.path().join("claude-arguments.txt");
     let cwd_log = fixture.path().join("claude-cwd.txt");
     fs::create_dir_all(&bin).expect("create bin");
-    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::create_dir_all(&repository).expect("create repository");
+    fs::create_dir_all(&worktree_parent).expect("create worktree parent");
+    let git = |arguments: &[&str]| {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&repository)
+            .args(arguments)
+            .output()
+            .expect("run Git fixture command");
+        assert!(
+            output.status.success(),
+            "Git fixture failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init", "-b", "main"]);
+    git(&["config", "user.name", "Rebinder Tests"]);
+    git(&["config", "user.email", "rebinder-tests@example.invalid"]);
+    fs::write(repository.join("tracked.txt"), "committed worktree state\n")
+        .expect("write tracked fixture");
+    git(&["add", "tracked.txt"]);
+    git(&["commit", "-m", "fixture"]);
+    git(&["branch", "reverse-session"]);
+    let workspace_text = workspace.to_string_lossy().into_owned();
+    git(&["worktree", "add", &workspace_text, "reverse-session"]);
+    fs::remove_dir_all(&workspace).expect("simulate missing registered worktree");
     let cwd_json = serde_json::to_string(workspace.to_str().expect("UTF-8 workspace"))
         .expect("encode workspace");
 
@@ -413,6 +461,9 @@ exit 0
                 "--to",
                 "claude",
                 "codex-source-1",
+                "--recover-worktree",
+                "--worktree-repository",
+                repository.to_str().expect("UTF-8 repository"),
                 "--",
                 "--model",
                 "fixture-model",
@@ -431,6 +482,11 @@ exit 0
         String::from_utf8_lossy(&first.stderr)
     );
     assert!(String::from_utf8_lossy(&first.stderr).contains("as new Claude session"));
+    assert!(String::from_utf8_lossy(&first.stderr).contains("recreated registered worktree"));
+    assert_eq!(
+        fs::read_to_string(workspace.join("tracked.txt")).expect("read recovered worktree"),
+        "committed worktree state\n"
+    );
     let second = run();
     assert!(
         second.status.success(),
@@ -460,11 +516,42 @@ fn claude_to_codex_imports_and_resumes_in_the_recorded_workspace() {
 
     let fixture = tempfile::tempdir().expect("create transfer fixture");
     let bin_directory = fixture.path().join("bin");
-    let workspace = fixture.path().join("worktree");
+    let repository = fixture.path().join("repository");
+    let worktree_parent = fixture.path().join("worktrees");
+    let workspace = worktree_parent.join("claude-session");
     let session_directory = fixture.path().join("claude-sessions");
     fs::create_dir_all(&bin_directory).expect("create fake bin directory");
-    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::create_dir_all(&repository).expect("create repository");
+    fs::create_dir_all(&worktree_parent).expect("create worktree parent");
     fs::create_dir_all(&session_directory).expect("create session directory");
+
+    let git = |arguments: &[&str]| {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&repository)
+            .args(arguments)
+            .output()
+            .expect("run Git fixture command");
+        assert!(
+            output.status.success(),
+            "Git fixture failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init", "-b", "main"]);
+    git(&["config", "user.name", "Rebinder Tests"]);
+    git(&["config", "user.email", "rebinder-tests@example.invalid"]);
+    fs::write(
+        repository.join("tracked.txt"),
+        "committed Claude workspace\n",
+    )
+    .expect("write tracked fixture");
+    git(&["add", "tracked.txt"]);
+    git(&["commit", "-m", "fixture"]);
+    git(&["branch", "claude-session"]);
+    let workspace_text = workspace.to_string_lossy().into_owned();
+    git(&["worktree", "add", &workspace_text, "claude-session"]);
+    fs::remove_dir_all(&workspace).expect("simulate missing registered worktree");
 
     let session_id = "11111111-2222-3333-4444-555555555555";
     let source_path = session_directory.join(format!("{session_id}.jsonl"));
@@ -522,12 +609,15 @@ exit 64
             "--to",
             "codex",
             session_id,
+            "--recover-worktree",
+            "--worktree-repository",
+            repository.to_str().expect("UTF-8 repository"),
             "--",
             "--model",
             "gpt-fixture",
         ])
-        .current_dir(&workspace)
-        .env("PATH", &bin_directory)
+        .current_dir(&repository)
+        .env("PATH", format!("{}:/usr/bin:/bin", bin_directory.display()))
         .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
         .env("FAKE_CODEX_CWD_LOG", &cwd_log)
         .output()
@@ -549,6 +639,11 @@ exit 64
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("imported Claude Code session"));
     assert!(stderr.contains(session_id));
+    assert!(stderr.contains("recreated registered worktree"));
+    assert_eq!(
+        fs::read_to_string(workspace.join("tracked.txt")).expect("read recovered worktree"),
+        "committed Claude workspace\n"
+    );
 }
 
 #[cfg(unix)]

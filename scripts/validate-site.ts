@@ -129,6 +129,7 @@ for (const requiredCopy of [
   "rebinder sessions codex",
   "rebinder transfer --from claude --to codex",
   "rebinder transfer --from codex --to claude",
+  "--recover-worktree",
   "both directions live",
   "private bounded checkpoint",
   "0.YYYYMMDD.REVISION",
