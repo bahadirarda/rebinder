@@ -81,7 +81,10 @@ For every new semantic revision, Rebinder starts one read-only Codex turn that
 creates a visible continuation brief from the injected context. The turn cannot
 write through its read-only sandbox and is instructed not to call tools. It
 consumes normal Codex model tokens and is recovered rather than duplicated
-after an interrupted ledger write. This keeps prior oversized imports intact
+after an interrupted ledger write. Rebinder validates the brief from the
+authoritative `item/completed` agent-message event and validates completion
+from `turn/completed`; transfer stages are printed before each blocking
+app-server or model operation. This keeps prior oversized imports intact
 while creating or reusing a separate native Codex thread.
 
 The role-preserving handoff format does not append onto a legacy flattened

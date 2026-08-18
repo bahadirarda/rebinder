@@ -8,9 +8,9 @@ use std::{
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
 use rebinder::{
-    CapabilitySupport, ClaudeContinuationState, ClaudeSession, ClaudeTransferStrategy,
-    CompatibilityFindingSeverity, CompatibilityReport, ContinuityOffer, ContinuityOfferReason,
-    ContinuityOfferState, ContinuityStatus, DEFAULT_FIVE_HOUR_THRESHOLD,
+    CapabilitySupport, ClaudeContinuationState, ClaudeSession, ClaudeTransferProgress,
+    ClaudeTransferStrategy, CompatibilityFindingSeverity, CompatibilityReport, ContinuityOffer,
+    ContinuityOfferReason, ContinuityOfferState, ContinuityStatus, DEFAULT_FIVE_HOUR_THRESHOLD,
     DEFAULT_SEVEN_DAY_THRESHOLD, ExportableSession, Harness, Inspection, ProviderCapabilities,
     ValidationReport, WorktreeRecovery, accept_continuity_offer, accepted_continuity_offer,
     accepted_offer_for_launch, assess_package_compatibility, claude_hook_output, continuity_status,
@@ -18,10 +18,11 @@ use rebinder::{
     discover_exportable_sessions, enable_claude_continuity, export_session, inspect_package,
     launch_prepared_claude_session, launch_prepared_codex_session, mark_continuity_offer_asked,
     mark_continuity_offer_completed, new_continuity_launch_id,
-    prepare_claude_to_codex_with_strategy_and_recovery, prepare_codex_to_claude_with_recovery,
-    prepare_continuation_artifact, process_claude_statusline, process_claude_stop_failure,
-    provider_capabilities, rescue_continuity_offer, rescue_offer_for_launch, run_harness,
-    run_harness_with_environment, validate_package,
+    prepare_claude_to_codex_with_strategy_and_recovery_and_progress,
+    prepare_codex_to_claude_with_recovery, prepare_continuation_artifact,
+    process_claude_statusline, process_claude_stop_failure, provider_capabilities,
+    rescue_continuity_offer, rescue_offer_for_launch, run_harness, run_harness_with_environment,
+    validate_package,
 };
 
 #[derive(Debug, Parser)]
@@ -746,6 +747,7 @@ fn transfer_claude_to_codex_run(arguments: TransferArgs) -> TransferRun {
     let recovery = worktree_recovery(&arguments);
     let mut session_id = arguments.session_id;
     if session_id.is_none() && io::stdin().is_terminal() && io::stderr().is_terminal() {
+        eprintln!("rebinder: [transfer] loading Claude Code sessions for selection");
         session_id = match pick_claude_session() {
             Ok(Some(session_id)) => Some(session_id),
             Ok(None) => {
@@ -765,10 +767,11 @@ fn transfer_claude_to_codex_run(arguments: TransferArgs) -> TransferRun {
         };
     }
 
-    let prepared = match prepare_claude_to_codex_with_strategy_and_recovery(
+    let prepared = match prepare_claude_to_codex_with_strategy_and_recovery_and_progress(
         session_id.as_deref(),
         arguments.strategy.into(),
         &recovery,
+        print_claude_transfer_progress,
     ) {
         Ok(prepared) => prepared,
         Err(error) => {
@@ -833,6 +836,45 @@ fn transfer_claude_to_codex_run(arguments: TransferArgs) -> TransferRun {
     }
 }
 
+fn print_claude_transfer_progress(stage: ClaudeTransferProgress) {
+    let message = match stage {
+        ClaudeTransferProgress::ConnectingCodexAppServer => "connecting to the Codex app-server",
+        ClaudeTransferProgress::DiscoveringClaudeSessions => {
+            "reading the Claude Code session inventory"
+        }
+        ClaudeTransferProgress::ResolvingSelectedSession => {
+            "resolving the selected session and transfer strategy"
+        }
+        ClaudeTransferProgress::RecoveringWorkspace => "recovering the registered source worktree",
+        ClaudeTransferProgress::ImportingFullHistory => {
+            "importing the complete Claude history into Codex"
+        }
+        ClaudeTransferProgress::ReusingFullImport => "checking the existing native Codex import",
+        ClaudeTransferProgress::PreparingContextSafeHandoff => {
+            "building a bounded, role-preserving continuation checkpoint"
+        }
+        ClaudeTransferProgress::CreatingCodexThread => {
+            "creating the native Codex continuation thread"
+        }
+        ClaudeTransferProgress::ResumingCodexThread => {
+            "resuming the existing Codex continuation thread"
+        }
+        ClaudeTransferProgress::InjectingHandoffHistory => {
+            "injecting the bounded history into Codex"
+        }
+        ClaudeTransferProgress::CompactingHandoffHistory => {
+            "compacting the updated Codex context; this can take a moment"
+        }
+        ClaudeTransferProgress::CheckingCompletedActivation => {
+            "checking whether the continuation brief already completed"
+        }
+        ClaudeTransferProgress::GeneratingContinuationBrief => {
+            "asking Codex for the visible continuation brief; this can take up to 3 minutes"
+        }
+    };
+    eprintln!("rebinder: [transfer] {message}");
+}
+
 fn transfer_codex_to_claude(arguments: TransferArgs) -> ExitCode {
     let recovery = worktree_recovery(&arguments);
     if arguments.strategy != TransferStrategyArgument::Auto {
@@ -841,6 +883,7 @@ fn transfer_codex_to_claude(arguments: TransferArgs) -> ExitCode {
         );
         return ExitCode::from(2);
     }
+    eprintln!("rebinder: [transfer] reading the Codex session inventory");
     let session_id = match resolve_export_session(Harness::Codex, arguments.session_id) {
         Ok(Some(session_id)) => session_id,
         Ok(None) => {
@@ -852,6 +895,9 @@ fn transfer_codex_to_claude(arguments: TransferArgs) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    eprintln!(
+        "rebinder: [transfer] building and validating the bounded Claude continuation artifact"
+    );
     let prepared = match prepare_codex_to_claude_with_recovery(&session_id, &recovery) {
         Ok(prepared) => prepared,
         Err(error) => {

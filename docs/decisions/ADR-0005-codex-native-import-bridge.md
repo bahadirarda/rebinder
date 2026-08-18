@@ -54,7 +54,10 @@ Implement the first operational direction as a target-native transfer bridge:
 8. After injection and any required compaction, start one `turn/start` activation
    with read-only sandboxing, approvals disabled, and a prompt that forbids tool
    use and file changes. The response MUST be a visible continuation brief
-   grounded only in the transferred history.
+   grounded only in the transferred history. Read the authoritative visible
+   `agentMessage` from its `item/completed` event and use `turn/completed` only
+   for the final turn status; current app-server versions need not repeat the
+   completed agent item inside the turn payload.
 9. Store pending, injected, ready, activating, and completed
    semantic-revision-to-thread bindings beside the append-only handoff. A retry
    after injection continues without injecting the same items again. If an

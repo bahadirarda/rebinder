@@ -1462,7 +1462,8 @@ if [ "$1" = "app-server" ]; then
         printf '%s\n' activate >> "$FAKE_CODEX_THREAD_LOG"
         printf '%s\n' "$line" >> "$FAKE_CODEX_ACTIVATION_LOG"
         printf '%s\n' '{{"id":9,"result":{{"turn":{{"id":"activation-turn","status":"inProgress","items":[]}}}}}}'
-        printf '%s\n' '{{"method":"turn/completed","params":{{"threadId":"019c0000-0000-7000-8000-000000000002","turn":{{"id":"activation-turn","status":"completed","items":[{{"type":"agentMessage","id":"activation-message","text":"Visible continuation brief"}}],"error":null}}}}}}'
+        printf '%s\n' '{{"method":"item/completed","params":{{"threadId":"019c0000-0000-7000-8000-000000000002","turnId":"activation-turn","item":{{"type":"agentMessage","id":"activation-message","text":"Visible continuation brief","phase":"final_answer"}}}}}}'
+        printf '%s\n' '{{"method":"turn/completed","params":{{"threadId":"019c0000-0000-7000-8000-000000000002","turn":{{"id":"activation-turn","status":"completed","items":[],"error":null}}}}}}'
         ;;
       *'"method":"externalAgentConfig/import"'*)
         printf '%s\n' '{{"id":3,"error":{{"message":"handoffs must not use external import"}}}}'
@@ -1529,6 +1530,14 @@ exit 64
         0o600
     );
     assert!(String::from_utf8_lossy(&output.stderr).contains("context-safe Codex thread"));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("[transfer] connecting to the Codex app-server")
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("[transfer] asking Codex for the visible continuation brief")
+    );
     assert_eq!(
         fs::read_to_string(&thread_log).expect("read thread request log"),
         "start\ninject\nactivate\n"

@@ -62,6 +62,8 @@ Rebinder
                 -> thread/inject_items with role-preserved bounded items
                 -> thread/compact/start for a meaningful repeat update
                 -> turn/start for a read-only visible continuation brief
+                -> item/completed agentMessage as authoritative visible output
+                -> turn/completed as authoritative final status
                 -> thread/read only to recover an interrupted activation
     -> Native Codex thread ID
     -> Rebinder opens the bound thread in the recorded Claude workspace

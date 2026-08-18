@@ -38,9 +38,11 @@ pub use reverse::{
     launch_prepared_claude_session, prepare_codex_to_claude, prepare_codex_to_claude_with_recovery,
 };
 pub use transfer::{
-    ClaudeSession, ClaudeSessionState, ClaudeTransferStrategy, PreparedCodexSession, TransferError,
-    discover_claude_sessions, launch_prepared_codex_session, prepare_claude_to_codex,
-    prepare_claude_to_codex_with_strategy, prepare_claude_to_codex_with_strategy_and_recovery,
+    ClaudeSession, ClaudeSessionState, ClaudeTransferProgress, ClaudeTransferStrategy,
+    PreparedCodexSession, TransferError, discover_claude_sessions, launch_prepared_codex_session,
+    prepare_claude_to_codex, prepare_claude_to_codex_with_strategy,
+    prepare_claude_to_codex_with_strategy_and_recovery,
+    prepare_claude_to_codex_with_strategy_and_recovery_and_progress,
 };
 pub use validation::{ValidationIssue, ValidationReport, validate_package};
 pub use worktree::{

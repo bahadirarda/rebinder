@@ -105,6 +105,13 @@ activation consumes target-model tokens. If activation finishes before its
 ledger completion record is persisted, a retry MUST detect the matching
 completed turn and MUST NOT create a duplicate brief.
 
+For app-server activation, Rebinder MUST treat the final `item/completed`
+`agentMessage` as the authoritative visible response and `turn/completed` as
+the authoritative turn status. It MUST NOT require the completed turn payload
+to repeat streamed agent items. Interactive and non-interactive transfer
+commands MUST emit concise progress lines before potentially blocking provider,
+import, compaction, and activation stages.
+
 ### FR-013 — Capability-aware continuation artifacts
 
 Every target adapter MUST publish a machine-readable declaration that labels
