@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "rebinder-continuity",
   "displayName": "Rebinder Continuity",
-  "version": "0.20260818.10",
+  "version": "0.20260819.0",
   "description": "Offers consent-gated handoffs before Claude Code usage limits and records typed rate-limit failures for local rescue.",
   "author": {
     "name": "bahadirarda",

@@ -6,6 +6,12 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 
 ## [Unreleased]
 
+## [0.20260819.0] - 2026-08-19
+
+### Changed
+
+- Accept visible Codex activation output from the authoritative app-server item event and print live transfer stages before blocking provider work.
+
 ## [0.20260818.10] - 2026-08-18
 
 ### Changed
@@ -121,7 +127,8 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 - Add the Calendar Versioning release ledger, native distribution foundation,
   and professional MVP documentation structure.
 
-[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.10...HEAD
+[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260819.0...HEAD
+[0.20260819.0]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.10...v0.20260819.0
 [0.20260818.10]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.9...v0.20260818.10
 [0.20260818.9]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.8...v0.20260818.9
 [0.20260818.8]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.7...v0.20260818.8
