@@ -31,7 +31,8 @@
 
 > [!IMPORTANT]
 > Rebinder can transfer a local Claude Code session into a native Codex thread
-> and immediately resume it in the session's recorded workspace. The reverse
+> and immediately open it in the session's recorded workspace. The user stays
+> in Rebinder for the whole operation. The reverse
 > Codex-to-Claude direction and provider-neutral compatibility reporting remain
 > fail-closed. Missing worktrees are reported; Rebinder does not recreate them.
 
@@ -79,9 +80,10 @@ cargo install --locked --path .
 Rebinder discovers Claude sessions through Codex's external-agent API and
 leaves existing Claude and Codex setup unchanged. Small transcripts use the
 native session importer. For large transcripts, Rebinder creates or resumes a
-native Codex thread and injects a bounded checkpoint through the Codex
-app-server, avoiding an oversized imported history. Both paths finish with the
-native Codex CLI in the source workspace.
+native Codex thread and injects a bounded, role-preserving checkpoint through
+the Codex app-server, avoiding an oversized imported history. Both paths finish
+by opening Codex from Rebinder in the source workspace; users do not need to
+run a separate `codex resume` command.
 
 List the Claude sessions Codex can currently detect, including their IDs,
 recorded workspaces, states, and recommended transfer strategies:
@@ -111,7 +113,8 @@ session whose recorded workspace or Git worktree matches the current directory:
 rebinder transfer --from claude --to codex
 ```
 
-Arguments after `--` are passed to `codex resume` after the target thread ID:
+Arguments after `--` are passed to the Codex process that Rebinder opens after
+binding the target thread:
 
 ```bash
 rebinder transfer SESSION_ID --from claude --to codex -- --search
@@ -120,8 +123,9 @@ rebinder transfer SESSION_ID --from claude --to codex -- --search
 The default `--strategy auto` uses Codex's native full import for source files
 up to 512 KiB. Larger sources use a context-safe handoff containing the latest
 Claude compact summary and at most 40,000 characters of recent visible user and
-assistant text. Thinking, tool calls, and tool results are excluded. Override
-the decision explicitly when diagnosing compatibility:
+assistant text. User and assistant roles are retained instead of flattening the
+history into one prompt. Thinking, tool calls, and tool results are excluded.
+Override the decision explicitly when diagnosing compatibility:
 
 ```bash
 rebinder transfer SESSION_ID --from claude --to codex --strategy handoff
@@ -138,9 +142,13 @@ session data visible to Codex, and the session's recorded workspace to still
 exist. The current Codex discovery surface returns up to 50 chats from the last
 30 days. Repeating a transfer resumes the strategy-specific Codex thread.
 Context-safe handoffs are append-only and inject a new bounded checkpoint only
-when the Claude source changes. Their local JSONL files also hold Rebinder's
-retry-safe source-to-thread binding, live in the platform data directory, and
-are private to the current user where the platform supports file permissions.
+when the visible conversation or compact summary changes. Updates to an
+existing handoff thread are compacted through Codex's native API before
+Rebinder opens Codex. Their local JSONL files also hold Rebinder's retry-safe
+injection-and-compaction ledger, live in the platform data directory, and are
+private to the current user where the platform supports file permissions.
+Legacy flattened handoff bindings are left intact and upgraded into a fresh
+role-preserving thread the first time this format is used.
 
 ## Other commands
 
@@ -173,9 +181,9 @@ than pretending an incompatible target artifact was created.
 | Provenance | Source adapter identity, transformations, export time, and redactions |
 | Harness commands | Native arguments, interactive streams, and process status are preserved |
 | Claude discovery | Lists Codex-supported local Claude sessions, sizes, and recommended strategies without printing transcript content |
-| Claude to Codex | Selects interactively or by ID, uses Codex-native import or thread APIs, and resumes the native thread in the recorded workspace |
-| Context guard | Injects a bounded summary-and-recent-message checkpoint into a native thread for source transcripts larger than 512 KiB |
-| Repeat transfer | Reuses the strategy-specific thread and appends a bounded checkpoint when a handoff source changes |
+| Claude to Codex | Selects interactively or by ID, uses Codex-native import or thread APIs, and opens the native thread from Rebinder in the recorded workspace |
+| Context guard | Injects bounded compact-summary and recent-message items with their user/assistant roles preserved for source transcripts larger than 512 KiB |
+| Repeat transfer | Reuses the strategy-specific thread, ignores metadata-only source churn, and natively compacts meaningful handoff updates before opening Codex |
 | Worktrees | Reuses an existing recorded worktree; missing workspace paths fail closed |
 | Compatibility | General provider capability and information-loss reports remain pending |
 | Codex to Claude | Not implemented; exits closed with code `2` |
@@ -229,9 +237,9 @@ sh scripts/test-installer.sh
 Session packages, provider session stores, and context-safe handoff files may
 contain sensitive workspace and conversation state. Claude-to-Codex transfer
 asks the local Codex app-server to import only the selected small session or to
-inject the bounded checkpoint for a large one; it does not select settings,
-credentials, plugins, skills, or MCP configuration. Rebinder never prints
-handoff content and rejects symlinked handoff targets. It fails
+inject the bounded role-preserving checkpoint for a large one; it does not
+select settings, credentials, plugins, skills, or MCP configuration. Rebinder
+never prints handoff content and rejects symlinked handoff targets. It fails
 closed on invalid structure, unsafe paths, missing workspaces, integrity
 failures, and provenance mismatches. Report vulnerabilities through the private
 process in [SECURITY.md](SECURITY.md), not a public issue.

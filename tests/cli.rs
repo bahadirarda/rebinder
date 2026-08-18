@@ -237,6 +237,16 @@ if [ "$1" = "app-server" ]; then
         printf '%s\n' "$line" >> "$FAKE_CODEX_INJECTION_LOG"
         printf '%s\n' '{{"id":6,"result":{{}}}}'
         ;;
+      *'"method":"thread/compact/start"'*)
+        printf '%s\n' compact >> "$FAKE_CODEX_THREAD_LOG"
+        printf '%s\n' '{{"id":7,"result":{{}}}}'
+        if [ -n "$FAKE_CODEX_COMPACT_FAIL_ONCE" ] && [ ! -e "$FAKE_CODEX_COMPACT_FAIL_ONCE" ]; then
+          : > "$FAKE_CODEX_COMPACT_FAIL_ONCE"
+          printf '%s\n' '{{"method":"turn/completed","params":{{"threadId":"019c0000-0000-7000-8000-000000000002","turn":{{"id":"compact-turn","status":"failed","items":[],"error":{{"message":"fixture compact failure"}}}}}}}}'
+        else
+          printf '%s\n' '{{"method":"turn/completed","params":{{"threadId":"019c0000-0000-7000-8000-000000000002","turn":{{"id":"compact-turn","status":"completed","items":[],"error":null}}}}}}'
+        fi
+        ;;
       *'"method":"externalAgentConfig/import"'*)
         printf '%s\n' '{{"id":3,"error":{{"message":"handoffs must not use external import"}}}}'
         ;;
@@ -308,6 +318,10 @@ exit 64
     let injection = fs::read_to_string(&injection_log).expect("read injection log");
     assert!(injection.contains("verified compact state"));
     assert!(injection.contains("recent visible answer"));
+    assert!(injection.contains("\"role\":\"user\""));
+    assert!(injection.contains("\"role\":\"assistant\""));
+    assert!(injection.contains("\"type\":\"input_text\""));
+    assert!(injection.contains("\"type\":\"output_text\""));
     assert!(!injection.contains("obsolete request"));
     assert!(!injection.contains("private tool output"));
 
@@ -345,7 +359,49 @@ exit 64
             .expect("read repeated handoff")
             .lines()
             .count(),
-        4
+        5
+    );
+
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&source_path)
+        .expect("open metadata-only source")
+        .write_all(b"{\"type\":\"mode\",\"mode\":\"plan\"}\n")
+        .expect("append irrelevant metadata");
+    let metadata_only = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "transfer",
+            "--from",
+            "claude",
+            "--to",
+            "codex",
+            session_id,
+            "--strategy",
+            "handoff",
+        ])
+        .current_dir(&workspace)
+        .env("PATH", &bin_directory)
+        .env("XDG_DATA_HOME", &data_directory)
+        .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
+        .env("FAKE_CODEX_THREAD_LOG", &thread_log)
+        .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
+        .output()
+        .expect("repeat after irrelevant source metadata");
+    assert!(
+        metadata_only.status.success(),
+        "metadata-only handoff failed: {}",
+        String::from_utf8_lossy(&metadata_only.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&thread_log).expect("read metadata-only thread log"),
+        "start\ninject\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&handoff_path)
+            .expect("read metadata-only handoff")
+            .lines()
+            .count(),
+        5
     );
 
     fs::OpenOptions::new()
@@ -380,13 +436,91 @@ exit 64
     );
     assert_eq!(
         fs::read_to_string(&thread_log).expect("read changed thread log"),
-        "start\ninject\nresume\ninject\n"
+        "start\ninject\nresume\ninject\ncompact\n"
     );
     assert_eq!(
         fs::read_to_string(&handoff_path)
             .expect("read changed handoff")
             .lines()
             .count(),
-        7
+        9
+    );
+    assert!(
+        String::from_utf8_lossy(&changed.stderr)
+            .contains("compacted the updated handoff before opening Codex")
+    );
+
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&source_path)
+        .expect("open source for retry fixture")
+        .write_all(b"{\"type\":\"assistant\",\"message\":{\"content\":\"retry-safe detail\"}}\n")
+        .expect("append retry-safe detail");
+    let compact_marker = fixture.path().join("compact-failed-once");
+    let failed = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "transfer",
+            "--from",
+            "claude",
+            "--to",
+            "codex",
+            session_id,
+            "--strategy",
+            "handoff",
+        ])
+        .current_dir(&workspace)
+        .env("PATH", &bin_directory)
+        .env("XDG_DATA_HOME", &data_directory)
+        .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
+        .env("FAKE_CODEX_THREAD_LOG", &thread_log)
+        .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
+        .env("FAKE_CODEX_COMPACT_FAIL_ONCE", &compact_marker)
+        .output()
+        .expect("run failed compact fixture");
+    assert_eq!(failed.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("fixture compact failure"));
+    assert_eq!(
+        fs::read_to_string(&handoff_path)
+            .expect("read handoff after failed compact")
+            .lines()
+            .count(),
+        12
+    );
+
+    let retried = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "transfer",
+            "--from",
+            "claude",
+            "--to",
+            "codex",
+            session_id,
+            "--strategy",
+            "handoff",
+        ])
+        .current_dir(&workspace)
+        .env("PATH", &bin_directory)
+        .env("XDG_DATA_HOME", &data_directory)
+        .env("FAKE_CODEX_ARGUMENTS_LOG", &arguments_log)
+        .env("FAKE_CODEX_THREAD_LOG", &thread_log)
+        .env("FAKE_CODEX_INJECTION_LOG", &injection_log)
+        .env("FAKE_CODEX_COMPACT_FAIL_ONCE", &compact_marker)
+        .output()
+        .expect("retry compact fixture");
+    assert!(
+        retried.status.success(),
+        "compact retry failed: {}",
+        String::from_utf8_lossy(&retried.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&thread_log).expect("read retry-safe thread log"),
+        "start\ninject\nresume\ninject\ncompact\nresume\ninject\ncompact\nresume\ncompact\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&handoff_path)
+            .expect("read handoff after compact retry")
+            .lines()
+            .count(),
+        13
     );
 }

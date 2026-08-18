@@ -127,9 +127,11 @@ A structured summary intended to help another agent or operator continue work.
 ## Context-Safe Handoff
 
 A bounded, derived source-session checkpoint containing a compact summary and
-recent visible messages. Rebinder injects it through the target's native thread
-API when a complete transcript would risk exhausting the target context window.
-The handoff is an implementation strategy inside a
+recent visible messages. Rebinder retains their user and assistant roles,
+detects meaningful changes from the bounded semantic content, and injects them
+through the target's native thread API when a complete transcript would risk
+exhausting the target context window. Meaningful repeat updates are compacted
+before the target opens. The handoff is an implementation strategy inside a
 cross-harness transfer, not a synonym for the transfer itself.
 
 ## Provenance

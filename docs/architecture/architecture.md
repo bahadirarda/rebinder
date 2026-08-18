@@ -33,9 +33,10 @@ Rebinder
     -> Select one Claude Code SESSIONS migration
     -> Full: Codex app-server externalAgentConfig/import
        Handoff: Codex app-server thread/start or thread/resume
-                -> thread/inject_items with a bounded checkpoint
+                -> thread/inject_items with role-preserved bounded items
+                -> thread/compact/start for a meaningful repeat update
     -> Native Codex thread ID
-    -> codex resume in the recorded Claude workspace
+    -> Rebinder opens the bound thread in the recorded Claude workspace
 ```
 
 ## Core boundaries
@@ -86,8 +87,11 @@ validation modules. The Claude-to-Codex native bridge is isolated in the
 transfer and handoff modules and communicates with Codex over newline-delimited
 JSON-RPC. Full import leaves parsing to Codex. The context-safe path streams only
 Claude message text and compact-summary records into a bounded Rebinder-owned
-handoff, then uses Codex's native thread APIs to persist that checkpoint;
-neither path writes Codex session files directly.
+handoff, preserves user and assistant roles in injected response items, and
+uses a semantic hash so metadata-only source churn does not create another
+checkpoint. A meaningful update to an existing handoff thread is compacted
+through Codex before Rebinder opens it. Neither path writes Codex session files
+directly.
 
 ## CLI command boundaries
 
@@ -114,5 +118,6 @@ standard streams are terminals. In non-interactive use it selects only the
 latest session whose recorded `cwd` resolves to the current directory. An
 explicit ID can select another discovered session. The auto strategy routes
 large sources through a bounded, persistent handoff injected into a native
-Codex thread. A missing recorded directory is an error; the MVP reuses existing
-worktrees but does not recreate them.
+Codex thread. Rebinder owns selection and opening, so users do not manually run
+Codex resume commands for a transfer. A missing recorded directory is an error;
+the MVP reuses existing worktrees but does not recreate them.
