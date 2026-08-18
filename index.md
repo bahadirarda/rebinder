@@ -30,6 +30,7 @@ Rebinder rebinds an agent session's portable state to a different coding agent h
 - [ADR-0007: Non-resuming canonical provider export](docs/decisions/ADR-0007-non-resuming-canonical-export.md)
 - [ADR-0008: Canonical Codex-to-Claude continuation](docs/decisions/ADR-0008-canonical-codex-to-claude-continuation.md)
 - [ADR-0009: Opt-in registered worktree recovery](docs/decisions/ADR-0009-opt-in-registered-worktree-recovery.md)
+- [ADR-0010: Consent-gated proactive handoff](docs/decisions/ADR-0010-consent-gated-proactive-handoff.md)
 
 ## Status
 
@@ -44,5 +45,8 @@ semantic revision and reuse the existing binding on repeat. Interchange schema
 command passthrough, canonical export, capability declarations,
 package-specific compatibility reports, bounded provider-neutral artifacts,
 explicit exact registered-worktree recovery, and the product site are
-implemented. Recovery deliberately excludes clone, fetch, unlock, overwrite,
-and uncommitted-state restoration.
+implemented. An opt-in Claude Code plugin can also observe documented five-hour
+and seven-day usage windows, ask once for consent near a configured threshold,
+and let the enclosing `rebinder claude` process open Codex after the user exits
+Claude. Recovery deliberately excludes clone, fetch, unlock, overwrite, and
+uncommitted-state restoration.

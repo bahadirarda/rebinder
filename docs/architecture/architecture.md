@@ -89,6 +89,26 @@ prompt carries the source revision and asks for a visible no-tool continuation
 brief. A repeat is considered activated only when the native Claude transcript
 contains both the matching marker and a later visible assistant message.
 
+The proactive continuity adapter sits before that manual transfer boundary and
+does not create a second migration format:
+
+```text
+Claude Code status-line JSON
+    -> continuity policy (5-hour / 7-day threshold)
+    -> immutable session + reset-window offer
+    -> Claude plugin hook adds one consent request
+    -> accept: arm offer / decline: suppress offer for window
+    -> source exits
+    -> enclosing rebinder claude process
+    -> existing Claude-to-Codex transfer adapter
+    -> native Codex thread
+```
+
+The status-line process inherits a process-scoped launch ID from `rebinder
+claude`; the offer stores that ID so another concurrent Claude session cannot
+claim it. When there is no enclosing wrapper, the same accepted state is
+consumed by an explicit `rebinder continuity resume` command.
+
 ## Core boundaries
 
 ### Core
@@ -182,6 +202,15 @@ Existing targets, missing parents, immediate symlink parents, locked entries,
 and ambiguous registrations stop before provider launch. The module restores
 only committed checkout state.
 
+The continuity module owns integration installation, status-line observation,
+offer deduplication, consent transitions, and post-exit routing. It stores a
+receipt containing the exact previous Claude status-line JSON, installs only a
+fixed managed plugin file set, and uses create-new marker files for asked,
+accepted, declined, and completed transitions. It calls the existing transfer
+module after consent rather than importing provider history itself. A missing
+Claude.ai subscriber signal creates no observation-based offer; Codex
+authentication is checked before policy enablement and before offer creation.
+
 ## CLI command boundaries
 
 The CLI has two distinct execution paths:
@@ -199,6 +228,15 @@ rebinder transfer --from <source> --to <target> [session] [--strategy <strategy>
 rebinder export --from <source> [session] --output <new-directory>
     -> source adapter read surface
     -> canonical package + self-validation
+
+rebinder continuity enable claude --to codex
+    -> reversible personal Claude plugin + status-line observer
+    -> consent-gated offer ledger
+
+rebinder claude [native arguments]
+    -> provider process with continuity launch binding
+    -> accepted offer after source exit
+    -> normal transfer adapter + target provider process
 ```
 
 The command facade MUST pass native provider arguments without interpreting

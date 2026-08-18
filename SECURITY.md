@@ -85,6 +85,33 @@ HEAD, attached branch state, and the common Git directory before starting a
 provider. A removed worktree's uncommitted and ignored files are not recoverable
 through this feature.
 
+Proactive continuity is disabled until the user runs `rebinder continuity
+enable claude --to codex`. Enablement verifies `codex login status`, installs a
+personal Claude Code plugin, and replaces Claude's single status-line command
+with a Rebinder wrapper. The wrapper replays the exact prior command with the
+same JSON input, records only documented session/workspace/rate-limit fields,
+and restores the prior JSON on disable. A changed status-line value or unknown
+file in the managed plugin directory causes disablement to fail rather than
+overwrite user state. Claude Code's own custom-status-line footer behavior
+still applies.
+
+The plugin runs unsandboxed with the user's Claude Code privileges, as Claude
+hooks normally do. Rebinder hook output contains local usage percentages,
+reset times, session identity, and a deterministic offer ID; it never includes
+transcript contents or credentials. Policy, observation, offer, and transition
+files use the Rebinder platform data directory and modes `0700`/`0600` on Unix.
+Session IDs, paths, usage, and reset times remain sensitive local metadata.
+
+A threshold creates only an offer. The plugin requires an explicit affirmative
+response before it records acceptance, and it does not launch a target TUI from
+a hook or Claude tool subprocess. With `rebinder claude`, Codex starts only
+after the user exits the source process; direct Claude launches require the
+printed `rebinder continuity resume --offer <id>` fallback. The normal transfer
+adapter then rechecks source/workspace constraints. Rebinder cannot prove a
+specific paid entitlement from stored credentials: Claude's subscriber-only
+rate-limit field and Codex's active authentication mode are availability
+signals, not billing guarantees.
+
 You should receive an acknowledgement within seven days. Publication and fix
 timing depend on severity and whether a coordinated provider disclosure is
 required.

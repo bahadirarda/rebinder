@@ -170,6 +170,35 @@ MUST NOT clone, fetch, unlock, overwrite, or claim to recover uncommitted state.
 After `git worktree add`, it MUST verify the recorded commit, attached branch
 when present, and common Git directory before a provider is launched.
 
+### FR-017 — Consent-gated proactive handoff
+
+Rebinder MUST be able to install an opt-in source-harness integration that
+observes an authoritative provider usage signal and offers a supported target
+harness before the source limit is exhausted. The initial adapter MUST use
+Claude Code's documented status-line `rate_limits` fields for five-hour and
+seven-day Claude.ai windows. It MUST NOT scrape terminal output, infer account
+billing, or treat an absent subscriber signal as zero usage.
+
+The initial policy MUST verify that Codex is authenticated before enablement and
+again before creating an offer. Default thresholds MUST be configurable. An
+offer MUST be deduplicated by source session, target, limit kind, and provider
+reset window. A hook MUST surface the offer at most once, and a decline MUST
+suppress it for that window.
+
+No transfer may be prepared or target process launched without explicit user
+acceptance. A Claude session launched through `rebinder claude` MUST bind offers
+to that wrapper process and, after acceptance and source exit, MUST use the
+normal Claude-to-Codex transfer adapter to open the target. A direct Claude
+launch MUST receive an explicit resume fallback. Hook and tool subprocesses
+MUST NOT nest an interactive target TUI.
+
+Enablement MUST preserve an existing Claude Code status-line command and
+disablement MUST restore its exact configuration. Plugin removal MUST refuse
+unknown files, and status-line restoration MUST fail closed if ownership has
+changed. Policy, observation, offer, and transition state MUST use private
+local storage where supported and MUST remain inspectable through human and
+JSON status output.
+
 ## Quality requirements
 
 - The interchange package SHOULD be human-readable and Git-friendly.

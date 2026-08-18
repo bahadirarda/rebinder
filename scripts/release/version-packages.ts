@@ -66,6 +66,8 @@ function updateChangelog(
 
 const cargoPath = "Cargo.toml";
 const packagePath = "package.json";
+const claudePluginPath =
+  "integrations/claude-code/rebinder-continuity/.claude-plugin/plugin.json";
 const cargoBefore = await readFile(cargoPath, "utf8");
 const cargo = Bun.TOML.parse(cargoBefore) as { package?: { version?: string } };
 const previousVersion = cargo.package?.version;
@@ -103,6 +105,17 @@ try {
   }
   packageMetadata.version = nextVersion;
   await writeFile(packagePath, `${JSON.stringify(packageMetadata, null, 2)}\n`);
+
+  const claudePluginMetadata = JSON.parse(await readFile(claudePluginPath, "utf8")) as {
+    name: string;
+    version: string;
+    [key: string]: unknown;
+  };
+  if (claudePluginMetadata.name !== "rebinder-continuity") {
+    throw new Error(`${claudePluginPath}: unexpected plugin identity`);
+  }
+  claudePluginMetadata.version = nextVersion;
+  await writeFile(claudePluginPath, `${JSON.stringify(claudePluginMetadata, null, 2)}\n`);
 
   const cargoAfter = replaceExactly(
     cargoBefore,

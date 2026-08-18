@@ -162,6 +162,21 @@ Rebinder starts it with read-only sandboxing and no approval escalation, marks
 it with the source semantic revision for retry recovery, and does not repeat it
 for an unchanged revision.
 
+## Proactive Handoff
+
+A source-session continuity workflow that observes a provider-supported usage
+or lifecycle signal and offers a cross-harness transfer before source execution
+is interrupted. Proactive describes detection and timing; it does not imply
+transfer without authorization.
+
+## Continuity Offer
+
+A one-window, one-session proposal to continue in an available target harness.
+An offer records the source, target, observed provider usage window, reset time,
+workspace, and process binding. It becomes actionable only after explicit user
+acceptance and may be declined without repeating during the same provider
+window.
+
 ## Provenance
 
 Information describing the entities, activities, agents, tools, and transformations involved in producing session data.

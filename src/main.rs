@@ -1,6 +1,6 @@
 use std::{
     ffi::OsString,
-    io::{self, IsTerminal},
+    io::{self, IsTerminal, Read, Write},
     path::PathBuf,
     process::ExitCode,
 };
@@ -9,12 +9,17 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use dialoguer::{Select, theme::ColorfulTheme};
 use rebinder::{
     CapabilitySupport, ClaudeContinuationState, ClaudeSession, ClaudeTransferStrategy,
-    CompatibilityFindingSeverity, CompatibilityReport, ExportableSession, Harness, Inspection,
-    ProviderCapabilities, ValidationReport, WorktreeRecovery, assess_package_compatibility,
-    discover_claude_sessions, discover_exportable_sessions, export_session, inspect_package,
-    launch_prepared_claude_session, launch_prepared_codex_session,
+    CompatibilityFindingSeverity, CompatibilityReport, ContinuityOffer, ContinuityOfferState,
+    ContinuityStatus, DEFAULT_FIVE_HOUR_THRESHOLD, DEFAULT_SEVEN_DAY_THRESHOLD, ExportableSession,
+    Harness, Inspection, ProviderCapabilities, ValidationReport, WorktreeRecovery,
+    accept_continuity_offer, accepted_continuity_offer, accepted_offer_for_launch,
+    assess_package_compatibility, claude_hook_output, continuity_status, decline_continuity_offer,
+    disable_claude_continuity, discover_claude_sessions, discover_exportable_sessions,
+    enable_claude_continuity, export_session, inspect_package, launch_prepared_claude_session,
+    launch_prepared_codex_session, mark_continuity_offer_completed, new_continuity_launch_id,
     prepare_claude_to_codex_with_strategy_and_recovery, prepare_codex_to_claude_with_recovery,
-    prepare_continuation_artifact, provider_capabilities, run_harness, validate_package,
+    prepare_continuation_artifact, process_claude_statusline, provider_capabilities, run_harness,
+    run_harness_with_environment, validate_package,
 };
 
 #[derive(Debug, Parser)]
@@ -36,6 +41,8 @@ enum Command {
     Claude(PassthroughArgs),
     /// Transfer a session to a different harness.
     Transfer(TransferArgs),
+    /// Configure proactive, consent-gated cross-harness handoffs.
+    Continuity(ContinuityArgs),
     /// List sessions available to a provider adapter.
     Sessions(SessionsArgs),
     /// Export a provider session into a new canonical Rebinder package.
@@ -102,6 +109,70 @@ struct TransferArgs {
     /// Arguments passed to the target harness after migration.
     #[arg(last = true, value_name = "TARGET_ARGS", allow_hyphen_values = true)]
     target_arguments: Vec<OsString>,
+}
+
+#[derive(Debug, Args)]
+struct ContinuityArgs {
+    #[command(subcommand)]
+    command: ContinuityCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum ContinuityCommand {
+    /// Install a source-harness integration and its continuity policy.
+    Enable(ContinuityEnableArgs),
+    /// Restore source-harness configuration and remove the managed integration.
+    Disable(ContinuityDisableArgs),
+    /// Show the installed policy, latest usage observation, and offer ledger.
+    Status {
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Internal Claude Code status-line bridge.
+    #[command(hide = true)]
+    Observe,
+    /// Internal Claude Code hook bridge.
+    #[command(hide = true)]
+    Hook,
+    /// Accept a pending offer after explicit user consent.
+    #[command(hide = true)]
+    Accept(ContinuityOfferArgs),
+    /// Decline a pending offer for its current usage window.
+    #[command(hide = true)]
+    Decline(ContinuityOfferArgs),
+    /// Finish an accepted handoff when Claude was not opened through Rebinder.
+    Resume(ContinuityOfferArgs),
+}
+
+#[derive(Debug, Args)]
+struct ContinuityEnableArgs {
+    /// Harness whose live usage is observed.
+    #[arg(value_enum)]
+    source: HarnessArgument,
+    /// Authenticated harness offered as the continuation target.
+    #[arg(short = 't', long, value_enum)]
+    to: HarnessArgument,
+    /// Offer a handoff at this percentage of the five-hour Claude.ai window.
+    #[arg(long, default_value_t = DEFAULT_FIVE_HOUR_THRESHOLD, value_parser = clap::value_parser!(u8).range(1..=100))]
+    five_hour_threshold: u8,
+    /// Offer a handoff at this percentage of the seven-day Claude.ai window.
+    #[arg(long, default_value_t = DEFAULT_SEVEN_DAY_THRESHOLD, value_parser = clap::value_parser!(u8).range(1..=100))]
+    seven_day_threshold: u8,
+}
+
+#[derive(Debug, Args)]
+struct ContinuityDisableArgs {
+    /// Harness whose managed integration should be removed.
+    #[arg(value_enum)]
+    source: HarnessArgument,
+}
+
+#[derive(Debug, Args)]
+struct ContinuityOfferArgs {
+    /// Exact offer ID; inferred from a Rebinder-owned Claude process when omitted.
+    #[arg(long)]
+    offer: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -192,7 +263,7 @@ impl From<HarnessArgument> for Harness {
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Codex(arguments) => launch_harness(Harness::Codex, arguments.arguments),
-        Command::Claude(arguments) => launch_harness(Harness::Claude, arguments.arguments),
+        Command::Claude(arguments) => launch_claude(arguments.arguments),
         Command::Transfer(arguments) => {
             if arguments.from == arguments.to {
                 eprintln!(
@@ -206,6 +277,7 @@ fn main() -> ExitCode {
             }
             transfer_codex_to_claude(arguments)
         }
+        Command::Continuity(arguments) => run_continuity(arguments.command),
         Command::Sessions(arguments) => list_sessions(&arguments),
         Command::Export(arguments) => export_canonical(arguments),
         Command::Capabilities { harness, json } => {
@@ -246,7 +318,276 @@ fn main() -> ExitCode {
     }
 }
 
+fn run_continuity(command: ContinuityCommand) -> ExitCode {
+    match command {
+        ContinuityCommand::Enable(arguments) => match enable_claude_continuity(
+            arguments.source.into(),
+            arguments.to.into(),
+            arguments.five_hour_threshold,
+            arguments.seven_day_threshold,
+        ) {
+            Ok(installation) => {
+                println!(
+                    "enabled proactive {}-to-{} handoff offers",
+                    installation.source.executable(),
+                    installation.target.executable()
+                );
+                println!(
+                    "thresholds: five-hour {}%, seven-day {}%",
+                    installation.five_hour_threshold, installation.seven_day_threshold
+                );
+                println!("Claude Code plugin: {}", installation.plugin_path.display());
+                println!(
+                    "start Claude through `rebinder claude`; restart an active Claude session to load the plugin"
+                );
+                ExitCode::SUCCESS
+            }
+            Err(error) => continuity_error(error),
+        },
+        ContinuityCommand::Disable(arguments) => {
+            match disable_claude_continuity(arguments.source.into()) {
+                Ok(installation) => {
+                    println!(
+                        "disabled proactive {} continuity",
+                        installation.source.executable()
+                    );
+                    println!(
+                        "restored Claude Code settings at {}",
+                        installation.settings_path.display()
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(error) => continuity_error(error),
+            }
+        }
+        ContinuityCommand::Status { json } => match continuity_status() {
+            Ok(status) => {
+                if json {
+                    print_json(&status);
+                } else {
+                    print_continuity_status(&status);
+                }
+                ExitCode::SUCCESS
+            }
+            Err(error) => continuity_error(error),
+        },
+        ContinuityCommand::Observe => continuity_observe(),
+        ContinuityCommand::Hook => continuity_hook(),
+        ContinuityCommand::Accept(arguments) => {
+            match accept_continuity_offer(arguments.offer.as_deref()) {
+                Ok(offer) => {
+                    println!("accepted Rebinder continuity offer {}", offer.id);
+                    if offer.launch_id.is_some() {
+                        println!(
+                            "enter `/exit`; the enclosing `rebinder claude` process will prepare and open {}",
+                            offer.target.executable()
+                        );
+                    } else {
+                        println!(
+                            "exit Claude Code, then run `rebinder continuity resume --offer {}`",
+                            offer.id
+                        );
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(error) => continuity_error(error),
+            }
+        }
+        ContinuityCommand::Decline(arguments) => {
+            match decline_continuity_offer(arguments.offer.as_deref()) {
+                Ok(offer) => {
+                    println!(
+                        "declined Rebinder continuity offer {}; it will stay quiet until the usage window changes",
+                        offer.id
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(error) => continuity_error(error),
+            }
+        }
+        ContinuityCommand::Resume(arguments) => {
+            match accepted_continuity_offer(arguments.offer.as_deref()) {
+                Ok(offer) => resume_continuity_offer(&offer),
+                Err(error) => continuity_error(error),
+            }
+        }
+    }
+}
+
+fn continuity_observe() -> ExitCode {
+    let mut input = Vec::new();
+    if let Err(error) = io::stdin().read_to_end(&mut input) {
+        eprintln!("rebinder continuity observer: cannot read status-line input: {error}");
+        return ExitCode::SUCCESS;
+    }
+    match process_claude_statusline(&input) {
+        Ok(render) => {
+            if let Err(error) = io::stdout().write_all(&render.output) {
+                eprintln!("rebinder continuity observer: cannot render status line: {error}");
+            }
+            if let Some(diagnostic) = render.diagnostic {
+                eprintln!("rebinder continuity observer: {diagnostic}");
+            }
+            ExitCode::from(render.exit_code)
+        }
+        Err(error) => {
+            eprintln!("rebinder continuity observer: {error}");
+            ExitCode::SUCCESS
+        }
+    }
+}
+
+fn continuity_hook() -> ExitCode {
+    let mut input = Vec::new();
+    if let Err(error) = io::stdin().read_to_end(&mut input) {
+        eprintln!("rebinder continuity hook: cannot read hook input: {error}");
+        return ExitCode::SUCCESS;
+    }
+    match claude_hook_output(&input) {
+        Ok(Some(output)) => match serde_json::to_string(&output) {
+            Ok(output) => println!("{output}"),
+            Err(error) => eprintln!("rebinder continuity hook: cannot encode output: {error}"),
+        },
+        Ok(None) => {}
+        Err(error) => eprintln!("rebinder continuity hook: {error}"),
+    }
+    ExitCode::SUCCESS
+}
+
+fn launch_claude(arguments: Vec<OsString>) -> ExitCode {
+    let launch_id = new_continuity_launch_id();
+    let status = match run_harness_with_environment(
+        Harness::Claude,
+        arguments,
+        [("REBINDER_LAUNCH_ID", launch_id.as_str())],
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::from(127);
+        }
+    };
+    match accepted_offer_for_launch(&launch_id) {
+        Ok(Some(offer)) => {
+            eprintln!(
+                "rebinder: accepted continuity handoff detected; preparing {} session {} for {}",
+                offer.source.executable(),
+                offer.session_id,
+                offer.target.executable()
+            );
+            resume_continuity_offer(&offer)
+        }
+        Ok(None) => process_exit_code(status.code()),
+        Err(error) => {
+            eprintln!("warning: cannot inspect continuity offers: {error}");
+            process_exit_code(status.code())
+        }
+    }
+}
+
+fn resume_continuity_offer(offer: &ContinuityOffer) -> ExitCode {
+    if offer.source != Harness::Claude || offer.target != Harness::Codex {
+        eprintln!(
+            "error: unsupported continuity route: {:?} to {:?}",
+            offer.source, offer.target
+        );
+        return ExitCode::from(2);
+    }
+    let transfer = transfer_claude_to_codex_run(TransferArgs {
+        from: HarnessArgument::Claude,
+        to: HarnessArgument::Codex,
+        session_id: Some(offer.session_id.clone()),
+        strategy: TransferStrategyArgument::Auto,
+        recover_worktree: false,
+        worktree_repository: None,
+        target_arguments: Vec::new(),
+    });
+    if transfer.target_started {
+        if let Err(error) = mark_continuity_offer_completed(&offer.id) {
+            eprintln!(
+                "warning: target started but continuity completion was not recorded: {error}"
+            );
+        }
+    }
+    transfer.exit_code
+}
+
+fn continuity_error(error: impl std::fmt::Display) -> ExitCode {
+    eprintln!("error: {error}");
+    ExitCode::from(2)
+}
+
+fn print_continuity_status(status: &ContinuityStatus) {
+    if !status.enabled {
+        println!("Claude continuity is disabled");
+        return;
+    }
+    println!(
+        "route: {} -> {} ({})",
+        status.source.map_or("unknown", Harness::executable),
+        status.target.map_or("unknown", Harness::executable),
+        if status.target_available {
+            "target authenticated"
+        } else {
+            "target unavailable"
+        }
+    );
+    println!(
+        "thresholds: five-hour {}%, seven-day {}%",
+        status.five_hour_threshold.unwrap_or_default(),
+        status.seven_day_threshold.unwrap_or_default()
+    );
+    if let Some(observation) = &status.latest_observation {
+        let five = observation.five_hour.as_ref().map_or_else(
+            || "unavailable".to_owned(),
+            |window| format!("{:.0}%", window.used_percentage),
+        );
+        let seven = observation.seven_day.as_ref().map_or_else(
+            || "unavailable".to_owned(),
+            |window| format!("{:.0}%", window.used_percentage),
+        );
+        println!(
+            "latest: session {} in {} (5h {five}, 7d {seven})",
+            observation.session_id,
+            observation.cwd.display()
+        );
+    } else {
+        println!("latest: waiting for Claude Code status-line data");
+    }
+    for offer in status.offers.iter().rev().take(5) {
+        println!(
+            "offer {}\t{}\t{} -> {}\t{}",
+            offer.offer.id,
+            match offer.state {
+                ContinuityOfferState::Ready => "ready",
+                ContinuityOfferState::Asked => "asked",
+                ContinuityOfferState::Accepted => "accepted",
+                ContinuityOfferState::Declined => "declined",
+                ContinuityOfferState::Completed => "completed",
+            },
+            offer.offer.source.executable(),
+            offer.offer.target.executable(),
+            offer.offer.session_id
+        );
+    }
+}
+
+fn process_exit_code(code: Option<i32>) -> ExitCode {
+    code.and_then(|code| u8::try_from(code).ok())
+        .map_or_else(|| ExitCode::from(1), ExitCode::from)
+}
+
+#[derive(Debug)]
+struct TransferRun {
+    exit_code: ExitCode,
+    target_started: bool,
+}
+
 fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
+    transfer_claude_to_codex_run(arguments).exit_code
+}
+
+fn transfer_claude_to_codex_run(arguments: TransferArgs) -> TransferRun {
     let recovery = worktree_recovery(&arguments);
     let mut session_id = arguments.session_id;
     if session_id.is_none() && io::stdin().is_terminal() && io::stderr().is_terminal() {
@@ -254,11 +595,17 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
             Ok(Some(session_id)) => Some(session_id),
             Ok(None) => {
                 eprintln!("rebinder: transfer cancelled");
-                return ExitCode::SUCCESS;
+                return TransferRun {
+                    exit_code: ExitCode::SUCCESS,
+                    target_started: false,
+                };
             }
             Err(error) => {
                 eprintln!("error: {error}");
-                return ExitCode::from(2);
+                return TransferRun {
+                    exit_code: ExitCode::from(2),
+                    target_started: false,
+                };
             }
         };
     }
@@ -271,7 +618,10 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
         Ok(prepared) => prepared,
         Err(error) => {
             eprintln!("error: {error}");
-            return ExitCode::from(2);
+            return TransferRun {
+                exit_code: ExitCode::from(2),
+                target_started: false,
+            };
         }
     };
 
@@ -314,13 +664,16 @@ fn transfer_claude_to_codex(arguments: TransferArgs) -> ExitCode {
     eprintln!("rebinder: opening Codex in {}", prepared.cwd.display());
 
     match launch_prepared_codex_session(&prepared, arguments.target_arguments) {
-        Ok(status) => status
-            .code()
-            .and_then(|code| u8::try_from(code).ok())
-            .map_or_else(|| ExitCode::from(1), ExitCode::from),
+        Ok(status) => TransferRun {
+            exit_code: process_exit_code(status.code()),
+            target_started: true,
+        },
         Err(error) => {
             eprintln!("error: {error}");
-            ExitCode::from(127)
+            TransferRun {
+                exit_code: ExitCode::from(127),
+                target_started: false,
+            }
         }
     }
 }
