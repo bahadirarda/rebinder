@@ -6,6 +6,14 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 
 ## [Unreleased]
 
+## [0.20260818.3] - 2026-08-18
+
+### Changed
+
+- Create one visible, history-grounded Codex continuation brief for each new
+  bounded Claude handoff revision, and recover interrupted activations without
+  duplicating model turns.
+
 ## [0.20260818.2] - 2026-08-18
 
 ### Changed
@@ -69,7 +77,8 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 - Add the Calendar Versioning release ledger, native distribution foundation,
   and professional MVP documentation structure.
 
-[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.2...HEAD
+[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.3...HEAD
+[0.20260818.3]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.2...v0.20260818.3
 [0.20260818.2]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.1...v0.20260818.2
 [0.20260818.1]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.0...v0.20260818.1
 [0.20260818.0]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.5...v0.20260818.0
