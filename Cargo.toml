@@ -1,6 +1,6 @@
 [package]
 name = "rebinder"
-version = "0.20260818.9"
+version = "0.20260818.10"
 edition = "2024"
 rust-version = "1.85"
 description = "Cross-harness session continuity for coding agents"
