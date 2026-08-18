@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "rebinder-continuity",
   "displayName": "Rebinder Continuity",
-  "version": "0.20260818.7",
+  "version": "0.20260818.8",
   "description": "Offers a consent-gated cross-harness handoff before Claude Code usage limits are exhausted.",
   "author": {
     "name": "bahadirarda",
@@ -11,7 +11,12 @@
   "homepage": "https://bahadirarda.github.io/rebinder/",
   "repository": "https://github.com/bahadirarda/rebinder",
   "license": "MIT",
-  "keywords": ["continuity", "handoff", "codex", "session"],
+  "keywords": [
+    "continuity",
+    "handoff",
+    "codex",
+    "session"
+  ],
   "metadata": {
     "managedBy": "rebinder",
     "releaseIdentity": "CalVer 0.YYYYMMDD.REVISION"
