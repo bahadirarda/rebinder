@@ -6,6 +6,12 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 
 ## [Unreleased]
 
+## [0.20260818.7] - 2026-08-18
+
+### Changed
+
+- Add opt-in recovery for exact unlocked missing Git worktrees in both transfer directions, with no-overwrite and post-checkout identity verification.
+
 ## [0.20260818.6] - 2026-08-18
 
 ### Changed
@@ -97,7 +103,8 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 - Add the Calendar Versioning release ledger, native distribution foundation,
   and professional MVP documentation structure.
 
-[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.6...HEAD
+[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.7...HEAD
+[0.20260818.7]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.6...v0.20260818.7
 [0.20260818.6]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.5...v0.20260818.6
 [0.20260818.5]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.4...v0.20260818.5
 [0.20260818.4]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.3...v0.20260818.4
