@@ -94,7 +94,10 @@ the Codex app-server, avoiding an oversized imported history. It then asks
 Codex for a concise, visible continuation brief grounded in those injected
 items before opening the thread. Both paths finish by opening Codex from
 Rebinder in the source workspace; users do not need to run a separate `codex
-resume` command.
+resume` command. While preparation is running, Rebinder prints each blocking
+stage to stderr—discovery, strategy resolution, import or checkpoint injection,
+compaction, activation recovery, and continuation-brief generation—so the CLI
+does not appear idle during app-server or model work.
 
 List the Claude sessions Codex can currently detect, including their IDs,
 recorded workspaces, states, and recommended transfer strategies:
@@ -140,6 +143,9 @@ The first transfer of each handoff revision starts one read-only Codex model
 turn to turn that hidden prompt history into a visible continuation brief. The
 activation prompt forbids tool calls and file changes, but it consumes normal
 Codex model tokens. Rebinder does not start it again for an unchanged revision.
+Activation success follows the app-server event contract: the final
+`item/completed` `agentMessage` is authoritative for the visible brief, while
+`turn/completed` supplies the final turn status.
 Override the decision explicitly when diagnosing compatibility:
 
 ```bash

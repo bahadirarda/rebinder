@@ -66,6 +66,24 @@ pub enum ClaudeTransferStrategy {
     Handoff,
 }
 
+/// User-visible stages emitted while preparing a Claude-to-Codex transfer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaudeTransferProgress {
+    ConnectingCodexAppServer,
+    DiscoveringClaudeSessions,
+    ResolvingSelectedSession,
+    RecoveringWorkspace,
+    ImportingFullHistory,
+    ReusingFullImport,
+    PreparingContextSafeHandoff,
+    CreatingCodexThread,
+    ResumingCodexThread,
+    InjectingHandoffHistory,
+    CompactingHandoffHistory,
+    CheckingCompletedActivation,
+    GeneratingContinuationBrief,
+}
+
 /// Result of preparing a Claude Code session for continuation in Codex.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedCodexSession {
@@ -170,9 +188,27 @@ pub fn prepare_claude_to_codex_with_strategy_and_recovery(
     strategy: ClaudeTransferStrategy,
     recovery: &WorktreeRecovery,
 ) -> Result<PreparedCodexSession, TransferError> {
+    prepare_claude_to_codex_with_strategy_and_recovery_and_progress(
+        session_id,
+        strategy,
+        recovery,
+        |_| {},
+    )
+}
+
+/// Import a Claude Code session while reporting each potentially blocking stage.
+pub fn prepare_claude_to_codex_with_strategy_and_recovery_and_progress(
+    session_id: Option<&str>,
+    strategy: ClaudeTransferStrategy,
+    recovery: &WorktreeRecovery,
+    mut progress: impl FnMut(ClaudeTransferProgress),
+) -> Result<PreparedCodexSession, TransferError> {
     let current_dir = std::env::current_dir().map_err(TransferError::CurrentDirectory)?;
+    progress(ClaudeTransferProgress::ConnectingCodexAppServer);
     let mut app_server = CodexAppServer::launch(OsStr::new("codex"))?;
+    progress(ClaudeTransferProgress::DiscoveringClaudeSessions);
     let inventory = load_inventory(&mut app_server, &current_dir)?;
+    progress(ClaudeTransferProgress::ResolvingSelectedSession);
     let selected = select_session(inventory, session_id, &current_dir)?;
 
     let recovered_worktree = if selected.public.cwd.is_dir() {
@@ -185,10 +221,13 @@ pub fn prepare_claude_to_codex_with_strategy_and_recovery(
                     cwd: selected.public.cwd,
                 });
             }
-            WorktreeRecovery::Registered { repository } => Some(recover_registered_worktree(
-                &selected.public.cwd,
-                repository.as_deref(),
-            )?),
+            WorktreeRecovery::Registered { repository } => {
+                progress(ClaudeTransferProgress::RecoveringWorkspace);
+                Some(recover_registered_worktree(
+                    &selected.public.cwd,
+                    repository.as_deref(),
+                )?)
+            }
         }
     };
 
@@ -202,10 +241,12 @@ pub fn prepare_claude_to_codex_with_strategy_and_recovery(
         ClaudeTransferStrategy::Auto => unreachable!("auto strategy must resolve before import"),
         ClaudeTransferStrategy::Full => {
             if let Some(migration_item) = selected.migration_item.as_ref() {
+                progress(ClaudeTransferProgress::ImportingFullHistory);
                 let thread_id =
                     app_server.import_session(migration_item, &selected.public.source_path)?;
                 (thread_id, true, false, false)
             } else {
+                progress(ClaudeTransferProgress::ReusingFullImport);
                 let thread_id = selected
                     .full_import_thread_id
                     .clone()
@@ -214,6 +255,7 @@ pub fn prepare_claude_to_codex_with_strategy_and_recovery(
             }
         }
         ClaudeTransferStrategy::Handoff => {
+            progress(ClaudeTransferProgress::PreparingContextSafeHandoff);
             let handoff = prepare_context_safe_handoff(
                 &selected.public.source_path,
                 &selected.public.id,
@@ -229,9 +271,11 @@ pub fn prepare_claude_to_codex_with_strategy_and_recovery(
                 (thread_id, false, false, false)
             } else {
                 let thread_id = if let Some(thread_id) = handoff.codex_thread_id.clone() {
+                    progress(ClaudeTransferProgress::ResumingCodexThread);
                     app_server.resume_thread(&thread_id)?;
                     thread_id
                 } else {
+                    progress(ClaudeTransferProgress::CreatingCodexThread);
                     app_server.start_thread(&selected.public.cwd)?
                 };
                 let history_was_ready =
@@ -239,11 +283,13 @@ pub fn prepare_claude_to_codex_with_strategy_and_recovery(
                 if !handoff.binding.injected() {
                     record_pending_handoff_binding(&handoff, &thread_id)
                         .map_err(|error| TransferError::Handoff(error.to_string()))?;
+                    progress(ClaudeTransferProgress::InjectingHandoffHistory);
                     app_server.inject_handoff(&thread_id, &handoff.messages)?;
                     record_injected_handoff_binding(&handoff, &thread_id)
                         .map_err(|error| TransferError::Handoff(error.to_string()))?;
                 }
                 let compacted = if handoff.binding.requires_compaction() {
+                    progress(ClaudeTransferProgress::CompactingHandoffHistory);
                     app_server.compact_thread(&thread_id)?;
                     true
                 } else {
@@ -254,6 +300,7 @@ pub fn prepare_claude_to_codex_with_strategy_and_recovery(
                         .map_err(|error| TransferError::Handoff(error.to_string()))?;
                 }
                 let activation_already_completed = if handoff.binding.activation_started() {
+                    progress(ClaudeTransferProgress::CheckingCompletedActivation);
                     app_server.handoff_activation_completed(&thread_id, &handoff.source_sha256)?
                 } else {
                     false
@@ -263,6 +310,7 @@ pub fn prepare_claude_to_codex_with_strategy_and_recovery(
                 } else {
                     record_activating_handoff_binding(&handoff, &thread_id)
                         .map_err(|error| TransferError::Handoff(error.to_string()))?;
+                    progress(ClaudeTransferProgress::GeneratingContinuationBrief);
                     app_server.activate_handoff(
                         &thread_id,
                         &selected.public.cwd,
@@ -912,25 +960,38 @@ impl CodexAppServer {
             .and_then(Value::as_str)
             .ok_or(TransferError::MissingCodexTurn)?
             .to_owned();
-        let completed = self.receive_matching(
-            |message| {
-                message.get("method").and_then(Value::as_str) == Some("turn/completed")
-                    && message.pointer("/params/threadId").and_then(Value::as_str)
-                        == Some(thread_id)
-                    && message.pointer("/params/turn/id").and_then(Value::as_str)
-                        == Some(turn_id.as_str())
-            },
-            ACTIVATION_TIMEOUT,
-            "handoff continuity activation completion",
-        )?;
+        let deadline = Instant::now() + ACTIVATION_TIMEOUT;
+        let mut visible_agent_message_completed = false;
+        let completed = loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(TransferError::AppServerTimeout {
+                    operation: "handoff continuity activation completion",
+                });
+            }
+            let event = self.receive_matching(
+                |message| {
+                    is_turn_completion(message, thread_id, &turn_id)
+                        || is_visible_agent_item_completion(message, thread_id, &turn_id)
+                },
+                remaining,
+                "handoff continuity activation completion",
+            )?;
+            if is_visible_agent_item_completion(&event, thread_id, &turn_id) {
+                visible_agent_message_completed = true;
+                continue;
+            }
+            break event;
+        };
         if completed
             .pointer("/params/turn/status")
             .and_then(Value::as_str)
             == Some("completed")
         {
-            return if completed
-                .pointer("/params/turn")
-                .is_some_and(turn_has_visible_agent_message)
+            return if visible_agent_message_completed
+                || completed
+                    .pointer("/params/turn")
+                    .is_some_and(turn_has_visible_agent_message)
             {
                 Ok(())
             } else {
@@ -1118,6 +1179,23 @@ fn turn_has_visible_agent_message(turn: &Value) -> bool {
                         .is_some_and(|text| !text.trim().is_empty())
             })
         })
+}
+
+fn is_turn_completion(message: &Value, thread_id: &str, turn_id: &str) -> bool {
+    message.get("method").and_then(Value::as_str) == Some("turn/completed")
+        && message.pointer("/params/threadId").and_then(Value::as_str) == Some(thread_id)
+        && message.pointer("/params/turn/id").and_then(Value::as_str) == Some(turn_id)
+}
+
+fn is_visible_agent_item_completion(message: &Value, thread_id: &str, turn_id: &str) -> bool {
+    message.get("method").and_then(Value::as_str) == Some("item/completed")
+        && message.pointer("/params/threadId").and_then(Value::as_str) == Some(thread_id)
+        && message.pointer("/params/turnId").and_then(Value::as_str) == Some(turn_id)
+        && message.pointer("/params/item/type").and_then(Value::as_str) == Some("agentMessage")
+        && message
+            .pointer("/params/item/text")
+            .and_then(Value::as_str)
+            .is_some_and(|text| !text.trim().is_empty())
 }
 
 fn turn_failure_message(completed: &Value, fallback: &str) -> String {
@@ -1481,5 +1559,100 @@ mod tests {
             &turn,
             &handoff_activation_marker("different-hash")
         ));
+    }
+
+    #[test]
+    fn activation_accepts_the_authoritative_completed_agent_item() {
+        let item = json!({
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "item": {
+                    "type": "agentMessage",
+                    "id": "message-1",
+                    "text": "Visible continuation brief",
+                    "phase": "final_answer"
+                }
+            }
+        });
+        let turn = json!({
+            "method": "turn/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turn": {
+                    "id": "turn-1",
+                    "status": "completed",
+                    "items": []
+                }
+            }
+        });
+
+        assert!(is_visible_agent_item_completion(
+            &item, "thread-1", "turn-1"
+        ));
+        assert!(!is_visible_agent_item_completion(
+            &item,
+            "thread-1",
+            "different-turn"
+        ));
+        assert!(is_turn_completion(&turn, "thread-1", "turn-1"));
+        assert!(
+            !turn
+                .pointer("/params/turn")
+                .is_some_and(turn_has_visible_agent_message)
+        );
+    }
+
+    #[test]
+    #[ignore = "requires an authenticated Codex account and consumes one small model turn"]
+    fn real_codex_activation_reads_the_authoritative_item_event() {
+        let workspace = tempfile::tempdir().expect("create live Codex workspace");
+        let mut app_server =
+            CodexAppServer::launch(OsStr::new("codex")).expect("launch real Codex app-server");
+        let thread_id = app_server
+            .start_thread(workspace.path())
+            .expect("start live Codex thread");
+        app_server
+            .inject_handoff(
+                &thread_id,
+                &[
+                    HandoffMessage {
+                        role: HandoffMessageRole::User,
+                        text: "Synthetic objective: verify Rebinder app-server activation."
+                            .to_owned(),
+                    },
+                    HandoffMessage {
+                        role: HandoffMessageRole::Assistant,
+                        text: "Verified state: this is an isolated read-only smoke test."
+                            .to_owned(),
+                    },
+                ],
+            )
+            .expect("inject synthetic handoff");
+
+        let activation =
+            app_server.activate_handoff(&thread_id, workspace.path(), "live-app-server-smoke");
+        let recovered = if activation.is_ok() {
+            Some(app_server.handoff_activation_completed(&thread_id, "live-app-server-smoke"))
+        } else {
+            None
+        };
+        let cleanup = app_server.request(
+            10,
+            "thread/delete",
+            json!({ "threadId": thread_id }),
+            RPC_TIMEOUT,
+            "live app-server smoke cleanup",
+        );
+
+        cleanup.expect("delete live Codex smoke thread");
+        activation.expect("accept visible agentMessage from item/completed");
+        assert!(
+            recovered
+                .expect("check persisted activation after live success")
+                .expect("read live Codex thread"),
+            "persisted activation should be recoverable on retry"
+        );
     }
 }
