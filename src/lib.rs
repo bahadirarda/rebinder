@@ -1,6 +1,7 @@
 //! Session transfer and provider-neutral package primitives for Rebinder.
 
 pub mod compatibility;
+pub mod export;
 mod handoff;
 pub mod harness;
 pub mod inspection;
@@ -13,6 +14,9 @@ pub use compatibility::{
     CompatibilityFinding, CompatibilityFindingSeverity, CompatibilityLevel, CompatibilityReport,
     PreparedContinuationArtifact, ProviderCapabilities, assess_package_compatibility,
     prepare_continuation_artifact, provider_capabilities,
+};
+pub use export::{
+    ExportError, ExportableSession, ExportedPackage, discover_exportable_sessions, export_session,
 };
 pub use harness::{Harness, HarnessLaunchError, run_harness};
 pub use inspection::{Inspection, PackageSummary, inspect_package};

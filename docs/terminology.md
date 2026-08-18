@@ -97,6 +97,13 @@ The serialized representation of the canonical session model used for exchange.
 
 A component that imports provider-specific data into the canonical model and exports canonical data for a provider.
 
+## Canonical Export
+
+A non-resuming source-adapter operation that maps a provider session into a
+validated Rebinder session package. It preserves portable, provider-visible
+state and declares transformations and redactions; it is not a byte-for-byte
+backup of a provider's private session store.
+
 ## Target-Native Transfer Bridge
 
 A transfer adapter that delegates provider-specific conversion and session

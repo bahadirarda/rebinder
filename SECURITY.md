@@ -47,6 +47,16 @@ facts, which can still be sensitive. Artifact output never overwrites an
 existing path and is created with mode `0600` on Unix. Users must review the
 result before sharing or passing it to another harness.
 
+Canonical export is also intentionally lossy at the security boundary. Claude
+export reads regular files from the configured local project store; Codex
+export uses `thread/list` and non-resuming `thread/read` requests. Rebinder does
+not write provider stores. Exported packages omit private reasoning,
+attachments, environment values, remote URLs, and provider tool payloads.
+Visible conversation is retained and common credential patterns are redacted
+best effort, so packages still require human review before sharing. Export
+requires a new output path, uses `0700` directories and `0600` files on Unix,
+binds files with SHA-256, and runs the normal validator before success.
+
 You should receive an acknowledgement within seven days. Publication and fix
 timing depend on severity and whether a coordinated provider disclosure is
 required.

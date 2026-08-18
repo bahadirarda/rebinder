@@ -136,6 +136,172 @@ fn artifact_command_writes_once_without_tool_result_payloads() {
     assert!(String::from_utf8_lossy(&repeated.stderr).contains("already exists"));
 }
 
+#[test]
+fn claude_session_exports_to_a_valid_canonical_package_without_codex_discovery() {
+    use std::fs;
+
+    let fixture = tempfile::tempdir().expect("create export fixture");
+    let config = fixture.path().join("claude");
+    let project = config.join("projects/project");
+    let workspace = fixture.path().join("workspace");
+    let output = fixture.path().join("exported-session");
+    fs::create_dir_all(&project).expect("create Claude project store");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    let session_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    let transcript = format!(
+        "{{\"type\":\"user\",\"sessionId\":\"{session_id}\",\"cwd\":{},\"timestamp\":\"2026-08-18T08:00:00Z\",\"version\":\"2.0.0\",\"message\":{{\"content\":\"Build canonical export\\nAPI_KEY=super-secret\"}}}}\n{{\"type\":\"assistant\",\"sessionId\":\"{session_id}\",\"cwd\":{},\"timestamp\":\"2026-08-18T08:01:00Z\",\"version\":\"2.0.0\",\"message\":{{\"content\":[{{\"type\":\"text\",\"text\":\"Export is ready\"}},{{\"type\":\"tool_use\",\"id\":\"call-1\",\"name\":\"Bash\",\"input\":{{\"command\":\"print secret output\"}}}}]}}}}\n",
+        serde_json::to_string(workspace.to_str().expect("UTF-8 workspace")).expect("encode cwd"),
+        serde_json::to_string(workspace.to_str().expect("UTF-8 workspace")).expect("encode cwd")
+    );
+    fs::write(project.join(format!("{session_id}.jsonl")), transcript)
+        .expect("write Claude transcript");
+
+    let export = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "export",
+            "--from",
+            "claude",
+            session_id,
+            "--output",
+            output.to_str().expect("UTF-8 output"),
+            "--json",
+        ])
+        .env("CLAUDE_CONFIG_DIR", &config)
+        .output()
+        .expect("run Claude export");
+    assert!(
+        export.status.success(),
+        "export failed: {}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    let metadata: serde_json::Value =
+        serde_json::from_slice(&export.stdout).expect("decode export metadata");
+    assert_eq!(metadata["sourceProvider"], "claude");
+    assert_eq!(metadata["validation"]["valid"], true);
+
+    let conversation =
+        fs::read_to_string(output.join("conversation.jsonl")).expect("read exported conversation");
+    assert!(conversation.contains("[REDACTED]"));
+    assert!(!conversation.contains("super-secret"));
+    assert!(!conversation.contains("print secret output"));
+    let validate = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .arg("validate")
+        .arg(&output)
+        .output()
+        .expect("validate exported package");
+    assert!(validate.status.success());
+
+    let repeated = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "export",
+            "--from",
+            "claude",
+            session_id,
+            "--output",
+            output.to_str().expect("UTF-8 output"),
+        ])
+        .env("CLAUDE_CONFIG_DIR", &config)
+        .output()
+        .expect("repeat Claude export");
+    assert_eq!(repeated.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&repeated.stderr).contains("already exists"));
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_sessions_are_listed_and_exported_through_the_read_only_app_server_api() {
+    use std::{fs, os::unix::fs::PermissionsExt};
+
+    let fixture = tempfile::tempdir().expect("create Codex export fixture");
+    let bin = fixture.path().join("bin");
+    let workspace = fixture.path().join("workspace");
+    let output = fixture.path().join("codex-export");
+    fs::create_dir_all(&bin).expect("create bin");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    let executable = bin.join("codex");
+    let cwd =
+        serde_json::to_string(workspace.to_str().expect("UTF-8 workspace")).expect("encode cwd");
+    let script = format!(
+        r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\n' 'codex-cli 1.0.0'
+  exit 0
+fi
+if [ "$1" = "app-server" ]; then
+  while IFS= read -r line; do
+    case "$line" in
+      *'"id":0'*)
+        printf '%s\n' '{{"id":0,"result":{{"userAgent":"codex-cli/1.0.0"}}}}'
+        ;;
+      *'"id":100'*)
+        printf '%s\n' '{{"id":100,"result":{{"data":[{{"id":"thread-export-1","name":"Canonical Codex fixture","preview":"Build the exporter","cwd":{cwd},"createdAt":1777685701,"updatedAt":1777685761}}],"nextCursor":null}}}}'
+        ;;
+      *'"id":500'*)
+        printf '%s\n' '{{"id":500,"result":{{"thread":{{"id":"thread-export-1","name":"Canonical Codex fixture","cwd":{cwd},"createdAt":1777685701,"updatedAt":1777685761,"turns":[{{"id":"turn-1","status":"completed","items":[{{"type":"userMessage","id":"user-1","content":[{{"type":"text","text":"Continue Codex export with sk-private-token"}}]}},{{"type":"commandExecution","id":"tool-1","command":"print secret output","cwd":{cwd},"status":"completed","aggregatedOutput":"secret output"}},{{"type":"agentMessage","id":"agent-1","text":"Canonical package ready","phase":"final_answer"}},{{"type":"reasoning","id":"reasoning-1","summary":["private"],"content":["private chain"]}}]}}]}}}}}}'
+        ;;
+    esac
+  done
+  exit 0
+fi
+exit 64
+"#
+    );
+    fs::write(&executable, script).expect("write fake Codex");
+    let mut permissions = fs::metadata(&executable)
+        .expect("read fake Codex metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&executable, permissions).expect("make fake Codex executable");
+
+    let sessions = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args(["sessions", "codex", "--json"])
+        .env("PATH", &bin)
+        .output()
+        .expect("list Codex sessions");
+    assert!(
+        sessions.status.success(),
+        "session listing failed: {}",
+        String::from_utf8_lossy(&sessions.stderr)
+    );
+    let sessions: serde_json::Value =
+        serde_json::from_slice(&sessions.stdout).expect("decode sessions");
+    assert_eq!(sessions[0]["id"], "thread-export-1");
+
+    let export = Command::new(env!("CARGO_BIN_EXE_rebinder"))
+        .args([
+            "export",
+            "--from",
+            "codex",
+            "thread-export-1",
+            "--output",
+            output.to_str().expect("UTF-8 output"),
+            "--json",
+        ])
+        .env("PATH", &bin)
+        .output()
+        .expect("export Codex session");
+    assert!(
+        export.status.success(),
+        "Codex export failed: {}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    let conversation =
+        fs::read_to_string(output.join("conversation.jsonl")).expect("read Codex conversation");
+    assert!(conversation.contains("[REDACTED]"));
+    assert!(conversation.contains("Canonical package ready"));
+    assert!(!conversation.contains("print secret output"));
+    assert!(!conversation.contains("private chain"));
+    assert!(
+        Command::new(env!("CARGO_BIN_EXE_rebinder"))
+            .arg("validate")
+            .arg(&output)
+            .output()
+            .expect("validate Codex export")
+            .status
+            .success()
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn codex_command_forwards_arguments_unchanged() {

@@ -6,7 +6,7 @@
     <title>Rebinder — Continue coding-agent sessions across harnesses</title>
     <meta
       name="description"
-      content="Rebinder is an open-source Rust CLI that imports local Claude Code sessions into native Codex threads and opens them in their recorded workspace."
+      content="Rebinder is an open-source Rust CLI for native Claude-to-Codex continuity and non-resuming Claude or Codex canonical session export."
     >
     <meta
       name="keywords"
@@ -24,7 +24,7 @@
     <meta property="og:title" content="Rebinder — Leave the harness. Keep the thread.">
     <meta
       property="og:description"
-      content="Move a local Claude Code session into a native Codex thread and continue in its recorded workspace."
+      content="Continue Claude work in Codex or export Claude and Codex sessions into validated canonical packages."
     >
     <meta property="og:url" content="https://bahadirarda.github.io/rebinder/">
     <meta property="og:image" content="https://bahadirarda.github.io/rebinder/assets/rebinder-social-card.png">
@@ -36,7 +36,7 @@
     <meta name="twitter:title" content="Rebinder — Cross-harness session continuity">
     <meta
       name="twitter:description"
-      content="Discover a Claude Code session, import it as a native Codex thread, and continue in the same workspace."
+      content="Continue a Claude Code session in Codex or export either provider into a validated canonical package."
     >
     <meta name="twitter:image" content="https://bahadirarda.github.io/rebinder/assets/rebinder-social-card.png">
 
@@ -58,7 +58,7 @@
             "name": "Rebinder",
             "applicationCategory": "DeveloperApplication",
             "operatingSystem": "Linux, macOS, Windows",
-            "description": "An open-source Rust CLI with interactive, context-safe local Claude Code to Codex session transfer, native command passthrough, and portable session-package validation.",
+            "description": "An open-source Rust CLI with context-safe Claude Code to Codex transfer, non-resuming canonical provider export, native command passthrough, and package validation.",
             "url": "https://bahadirarda.github.io/rebinder/",
             "downloadUrl": "https://github.com/bahadirarda/rebinder/releases/latest",
             "installUrl": "https://bahadirarda.github.io/rebinder/install.sh",
@@ -116,9 +116,9 @@
             <p class="eyebrow"><span></span> Cross-harness session continuity</p>
             <h1>Leave the harness.<br><em>Keep the thread.</em></h1>
             <p class="hero-lede">
-              Rebinder moves a local Claude Code session into a native Codex thread, then opens it
-              in the workspace or Git worktree where the work happened. Codex owns the conversion;
-              Rebinder owns explicit selection, safe orchestration, and a visible continuation brief.
+              Rebinder moves a local Claude Code session into a native Codex thread, or exports a
+              Claude or Codex session into a validated canonical package without resuming it.
+              Rebinder owns explicit selection, safe orchestration, and declared information loss.
             </p>
 
             <div class="hero-actions">
@@ -131,7 +131,7 @@
             <ul class="hero-proof">
               <li>Native Rust binary</li>
               <li>MIT licensed</li>
-              <li>Claude → Codex live</li>
+              <li>2 canonical exporters</li>
             </ul>
           </div>
 
@@ -167,7 +167,7 @@
 
       <section class="status-strip" aria-label="Current Rebinder status">
         <div class="shell status-grid">
-          <div><strong>1</strong><span>live transfer direction</span></div>
+          <div><strong>2</strong><span>canonical source adapters</span></div>
           <div><strong>7</strong><span>canonical package documents</span></div>
           <div><strong>5</strong><span>native release targets</span></div>
           <div><strong>0.1.0</strong><span>interchange schema</span></div>
@@ -202,6 +202,13 @@
               <div class="code-line"><code>rebinder transfer --from claude --to codex</code><button type="button" data-copy-value="rebinder transfer --from claude --to codex" aria-label="Copy interactive Claude to Codex transfer example">Copy</button></div>
               <p>Choose with arrow keys and Enter. Rebinder binds Codex, uses one read-only model turn to create a history-grounded continuation brief, and opens the thread itself.</p>
             </article>
+
+            <article class="command-card command-card-blue" data-reveal>
+              <div class="command-card-head"><span>Export</span><span>non-resuming</span></div>
+              <h3>Create inspectable canonical state.</h3>
+              <div class="code-line"><code>rebinder export --from codex THREAD_ID --output ./session</code><button type="button" data-copy-value="rebinder export --from codex THREAD_ID --output ./session" aria-label="Copy canonical export example">Copy</button></div>
+              <p>Read Claude locally or Codex through its app-server, redact provider-private payloads, bind files with SHA-256, and validate before success.</p>
+            </article>
           </div>
         </div>
       </section>
@@ -224,12 +231,12 @@
             <li data-reveal>
               <span>01</span>
               <div><h3>Inspect the source</h3><p>Resolve session identity and collect only the provider state the adapter can prove.</p></div>
-              <small>Claude live</small>
+              <small>Claude + Codex live</small>
             </li>
             <li data-reveal>
               <span>02</span>
               <div><h3>Build portable state</h3><p>Normalize conversation, task, repository, workspace, provenance, and handoff data.</p></div>
-              <small>format ready</small>
+              <small>export live</small>
             </li>
             <li data-reveal>
               <span>03</span>
@@ -298,6 +305,8 @@
               <p>Use structured output when another tool needs to consume the package facts.</p>
             </div>
             <div class="inspect-terminal">
+              <p><span>$</span> rebinder export --from claude SESSION_ID --output ./session-package</p>
+              <p class="ok">✓ canonical package exported and self-validated</p>
               <p><span>$</span> rebinder validate ./session-package</p>
               <p class="ok">✓ session package is valid</p>
               <p><span>$</span> rebinder inspect ./session-package --json</p>

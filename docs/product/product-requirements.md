@@ -119,6 +119,22 @@ environment values, or repository remote URLs. It MUST NOT overwrite an
 existing output path and MUST use private file permissions where the platform
 supports them.
 
+### FR-014 — Provider canonical export
+
+The Claude source adapter MUST discover and parse locally stored Claude Code
+project sessions without requiring Codex. The Codex source adapter MUST list
+threads and read complete turn data through supported app-server methods
+without resuming the selected thread or directly reading private rollout
+files. Both adapters MUST produce the same canonical package contract.
+
+Export MUST exclude private reasoning, attachment payloads, environment
+values, repository remote URLs, and provider tool input/output payloads by
+default. It MUST apply best-effort credential redaction to visible text and
+record transformations and redaction counts in provenance. Output MUST use a
+new directory, MUST NOT overwrite an existing path, MUST use private Unix
+permissions where supported, and MUST pass normal package validation before
+success is reported.
+
 ## Quality requirements
 
 - The interchange package SHOULD be human-readable and Git-friendly.

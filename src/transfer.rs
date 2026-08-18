@@ -610,7 +610,7 @@ fn path_key(path: &Path) -> String {
         .into_owned()
 }
 
-struct CodexAppServer {
+pub(crate) struct CodexAppServer {
     child: Child,
     stdin: Option<ChildStdin>,
     messages: Receiver<Result<Value, RpcReadError>>,
@@ -625,7 +625,7 @@ enum RpcReadError {
 }
 
 impl CodexAppServer {
-    fn launch(executable: &OsStr) -> Result<Self, TransferError> {
+    pub(crate) fn launch(executable: &OsStr) -> Result<Self, TransferError> {
         let mut child = Command::new(executable)
             .args(["app-server", "--listen", "stdio://"])
             .stdin(Stdio::piped())
@@ -966,7 +966,7 @@ impl CodexAppServer {
             .ok_or(TransferError::MissingCodexThread)
     }
 
-    fn request(
+    pub(crate) fn request(
         &mut self,
         id: u64,
         method: &'static str,
