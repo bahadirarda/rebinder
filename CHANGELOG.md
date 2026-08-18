@@ -6,6 +6,12 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 
 ## [Unreleased]
 
+## [0.20260818.9] - 2026-08-18
+
+### Changed
+
+- Add a consent-gated hard-limit rescue that records Claude Code's documented rate-limit failure hook, deduplicates terminal notification state, asks locally after source exit, and reuses the normal Claude-to-Codex transfer adapter.
+
 ## [0.20260818.8] - 2026-08-18
 
 ### Changed
@@ -109,7 +115,8 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 - Add the Calendar Versioning release ledger, native distribution foundation,
   and professional MVP documentation structure.
 
-[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.8...HEAD
+[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.9...HEAD
+[0.20260818.9]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.8...v0.20260818.9
 [0.20260818.8]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.7...v0.20260818.8
 [0.20260818.7]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.6...v0.20260818.7
 [0.20260818.6]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.5...v0.20260818.6
