@@ -146,6 +146,7 @@ pub struct ContinuityObservation {
 pub enum ContinuityOfferReason {
     SevenDayLimit,
     FiveHourLimit,
+    RateLimitFailure,
 }
 
 impl ContinuityOfferReason {
@@ -153,6 +154,7 @@ impl ContinuityOfferReason {
         match self {
             Self::SevenDayLimit => "7-day",
             Self::FiveHourLimit => "5-hour",
+            Self::RateLimitFailure => "provider-rate-limit",
         }
     }
 }
@@ -190,6 +192,7 @@ pub struct ContinuityOfferStatus {
     #[serde(flatten)]
     pub offer: ContinuityOffer,
     pub state: ContinuityOfferState,
+    pub rescue_ready: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -258,6 +261,15 @@ struct ClaudeHookInput {
     session_id: String,
     cwd: PathBuf,
     hook_event_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeStopFailureInput {
+    session_id: String,
+    cwd: PathBuf,
+    transcript_path: Option<PathBuf>,
+    hook_event_name: String,
+    error: String,
 }
 
 /// Install Rebinder's personal Claude Code plugin and status-line observer.
@@ -388,6 +400,7 @@ pub fn continuity_status() -> Result<ContinuityStatus, ContinuityError> {
     let mut offers = read_offers()?
         .into_iter()
         .map(|offer| ContinuityOfferStatus {
+            rescue_ready: rescue_marker_exists(&offer.id),
             state: offer_state(&offer.id),
             offer,
         })
@@ -476,6 +489,7 @@ pub fn claude_hook_output(input: &[u8]) -> Result<Option<Value>, ContinuityError
                 && paths_equivalent(&offer.cwd, &hook.cwd)
                 && offer.target == receipt.target
                 && offer_state(&offer.id) == ContinuityOfferState::Ready
+                && !rescue_marker_exists(&offer.id)
         })
         .collect::<Vec<_>>();
     offers.sort_by_key(|offer| offer.created_at_unix_seconds);
@@ -492,6 +506,27 @@ pub fn claude_hook_output(input: &[u8]) -> Result<Option<Value>, ContinuityError
             "additionalContext": context
         }
     })))
+}
+
+/// Record an authoritative Claude Code rate-limit failure for out-of-band rescue.
+pub fn process_claude_stop_failure(input: &[u8]) -> Result<Option<Value>, ContinuityError> {
+    let receipt = read_receipt()?.ok_or(ContinuityError::NotEnabled)?;
+    let failure: ClaudeStopFailureInput =
+        serde_json::from_slice(input).map_err(ContinuityError::InvalidHook)?;
+    if failure.hook_event_name != "StopFailure" || failure.error != "rate_limit" {
+        return Ok(None);
+    }
+    let launch_id = env::var(LAUNCH_ID_ENV)
+        .ok()
+        .filter(|value| !value.is_empty());
+    let offer = maybe_create_rescue_offer(&receipt, &failure, launch_id.as_deref())?;
+    if offer.is_some_and(|(_, newly_recorded)| newly_recorded) {
+        Ok(Some(json!({
+            "terminalSequence": "\u{1b}]9;Rebinder recorded a Claude rate-limit rescue. Exit Claude and run rebinder continuity rescue.\u{7}\u{7}"
+        })))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Record explicit approval for a pending continuity offer.
@@ -538,6 +573,66 @@ pub fn accepted_offer_for_launch(
         .collect::<Vec<_>>();
     offers.sort_by_key(|offer| offer.created_at_unix_seconds);
     Ok(offers.pop())
+}
+
+/// Find a hard-limit rescue awaiting consent for a Rebinder-owned Claude process.
+pub fn rescue_offer_for_launch(
+    launch_id: &str,
+) -> Result<Option<ContinuityOffer>, ContinuityError> {
+    let receipt = read_receipt()?.ok_or(ContinuityError::NotEnabled)?;
+    if !target_is_available(receipt.target) {
+        return Err(ContinuityError::TargetUnavailable);
+    }
+    let mut offers = read_offers()?
+        .into_iter()
+        .filter(|offer| {
+            offer.launch_id.as_deref() == Some(launch_id)
+                && rescue_marker_exists(&offer.id)
+                && matches!(
+                    offer_state(&offer.id),
+                    ContinuityOfferState::Ready | ContinuityOfferState::Asked
+                )
+        })
+        .collect::<Vec<_>>();
+    offers.sort_by_key(|offer| offer.created_at_unix_seconds);
+    Ok(offers.pop())
+}
+
+/// Resolve a recorded hard-limit rescue without accepting it.
+pub fn rescue_continuity_offer(
+    explicit_offer_id: Option<&str>,
+) -> Result<ContinuityOffer, ContinuityError> {
+    let receipt = read_receipt()?.ok_or(ContinuityError::NotEnabled)?;
+    if !target_is_available(receipt.target) {
+        return Err(ContinuityError::TargetUnavailable);
+    }
+    let launch_id = env::var(LAUNCH_ID_ENV).ok();
+    let mut offers = if let Some(id) = explicit_offer_id {
+        validate_offer_id(id)?;
+        read_json_optional(&offer_path(id)?)?.into_iter().collect()
+    } else {
+        read_offers()?
+    };
+    offers.retain(|offer| {
+        rescue_marker_exists(&offer.id)
+            && matches!(
+                offer_state(&offer.id),
+                ContinuityOfferState::Ready
+                    | ContinuityOfferState::Asked
+                    | ContinuityOfferState::Accepted
+            )
+            && launch_id
+                .as_deref()
+                .is_none_or(|launch_id| offer.launch_id.as_deref() == Some(launch_id))
+    });
+    offers.sort_by_key(|offer| offer.created_at_unix_seconds);
+    offers.pop().ok_or(ContinuityError::OfferNotFound)
+}
+
+/// Record that the local rescue consent question was displayed.
+pub fn mark_continuity_offer_asked(offer_id: &str) -> Result<(), ContinuityError> {
+    write_marker_if_absent("asked", offer_id)?;
+    Ok(())
 }
 
 /// Resolve an accepted offer for the manual continuity resume fallback.
@@ -940,6 +1035,139 @@ fn maybe_create_offer(
     }
 }
 
+fn maybe_create_rescue_offer(
+    receipt: &ContinuityReceipt,
+    failure: &ClaudeStopFailureInput,
+    launch_id: Option<&str>,
+) -> Result<Option<(ContinuityOffer, bool)>, ContinuityError> {
+    if !target_is_available(receipt.target) {
+        return Ok(None);
+    }
+
+    let now = now_unix_seconds();
+    let mut existing_window_offers = read_offers()?
+        .into_iter()
+        .filter(|offer| {
+            offer.session_id == failure.session_id
+                && paths_equivalent(&offer.cwd, &failure.cwd)
+                && offer.target == receipt.target
+                && offer.reason != ContinuityOfferReason::RateLimitFailure
+                && offer_has_active_window(offer, now)
+        })
+        .collect::<Vec<_>>();
+    existing_window_offers.sort_by_key(|offer| offer.created_at_unix_seconds);
+    if let Some(offer) = existing_window_offers.pop() {
+        match offer_state(&offer.id) {
+            ContinuityOfferState::Ready | ContinuityOfferState::Asked
+                if offer.launch_id.as_deref() == launch_id =>
+            {
+                let newly_recorded = write_marker_if_absent("rescue", &offer.id)?;
+                return Ok(Some((offer, newly_recorded)));
+            }
+            ContinuityOfferState::Ready | ContinuityOfferState::Asked => {}
+            ContinuityOfferState::Accepted
+            | ContinuityOfferState::Declined
+            | ContinuityOfferState::Completed => return Ok(None),
+        }
+    }
+
+    let observation = read_observations()?
+        .into_iter()
+        .filter(|observation| {
+            observation.session_id == failure.session_id
+                && paths_equivalent(&observation.cwd, &failure.cwd)
+                && observation.launch_id.as_deref() == launch_id
+        })
+        .max_by_key(|observation| observation.observed_at_unix_seconds);
+    let revision = failure_revision(failure);
+    let id = digest(
+        format!(
+            "v{OFFER_SCHEMA_VERSION}:{}:{}:{}:{}:{revision}",
+            failure.session_id,
+            receipt.target.executable(),
+            ContinuityOfferReason::RateLimitFailure.label(),
+            launch_id.unwrap_or("direct")
+        )
+        .as_bytes(),
+    );
+    let candidate = ContinuityOffer {
+        schema_version: OFFER_SCHEMA_VERSION,
+        id: id.clone(),
+        source: receipt.source,
+        target: receipt.target,
+        session_id: failure.session_id.clone(),
+        cwd: failure.cwd.clone(),
+        transcript_path: failure.transcript_path.clone(),
+        launch_id: launch_id.map(str::to_owned),
+        reason: ContinuityOfferReason::RateLimitFailure,
+        five_hour: observation
+            .as_ref()
+            .and_then(|observation| observation.five_hour.clone()),
+        seven_day: observation
+            .as_ref()
+            .and_then(|observation| observation.seven_day.clone()),
+        created_at_unix_seconds: now,
+    };
+    let path = offer_path(&id)?;
+    let offer = if let Some(existing) = read_json_optional::<ContinuityOffer>(&path)? {
+        existing
+    } else {
+        match write_json_create_new(&path, &candidate) {
+            Ok(()) => candidate,
+            Err(ContinuityError::Write { source, .. })
+                if source.kind() == std::io::ErrorKind::AlreadyExists =>
+            {
+                read_json_optional(&path)?.ok_or(ContinuityError::OfferNotFound)?
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    if !matches!(
+        offer_state(&offer.id),
+        ContinuityOfferState::Ready | ContinuityOfferState::Asked | ContinuityOfferState::Accepted
+    ) {
+        return Ok(None);
+    }
+    let newly_recorded = write_marker_if_absent("rescue", &offer.id)?;
+    Ok(Some((offer, newly_recorded)))
+}
+
+fn offer_has_active_window(offer: &ContinuityOffer, now: u64) -> bool {
+    offer
+        .five_hour
+        .as_ref()
+        .is_some_and(|window| window.resets_at > now)
+        || offer
+            .seven_day
+            .as_ref()
+            .is_some_and(|window| window.resets_at > now)
+}
+
+fn failure_revision(failure: &ClaudeStopFailureInput) -> String {
+    use std::fmt::Write as _;
+
+    let mut source = format!(
+        "{}\0{}\0{}",
+        failure.session_id,
+        failure.cwd.display(),
+        failure
+            .transcript_path
+            .as_ref()
+            .map_or_else(String::new, |path| path.display().to_string())
+    );
+    if let Some(path) = failure.transcript_path.as_ref() {
+        if let Ok(metadata) = fs::symlink_metadata(path) {
+            let _ = write!(&mut source, "\0{}", metadata.len());
+            if let Ok(modified) = metadata.modified() {
+                if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
+                    let _ = write!(&mut source, "\0{}", duration.as_nanos());
+                }
+            }
+        }
+    }
+    digest(source.as_bytes())
+}
+
 fn default_status_line(
     observation: &ContinuityObservation,
     offer: Option<&ContinuityOffer>,
@@ -960,8 +1188,15 @@ fn offer_status_line(offer: &ContinuityOffer) -> String {
     let usage = match offer.reason {
         ContinuityOfferReason::SevenDayLimit => offer.seven_day.as_ref(),
         ContinuityOfferReason::FiveHourLimit => offer.five_hour.as_ref(),
+        ContinuityOfferReason::RateLimitFailure => None,
     }
     .map_or_else(|| "unknown".to_owned(), percentage);
+    if offer.reason == ContinuityOfferReason::RateLimitFailure {
+        return format!(
+            "↪ rebinder: provider rate limit reached; {} rescue ready\n",
+            offer.target.executable()
+        );
+    }
     format!(
         "↪ rebinder: {} usage {usage}; {} handoff offer ready\n",
         offer.reason.label(),
@@ -977,6 +1212,7 @@ fn offer_context(offer: &ContinuityOffer) -> String {
     let observed = match offer.reason {
         ContinuityOfferReason::SevenDayLimit => offer.seven_day.as_ref(),
         ContinuityOfferReason::FiveHourLimit => offer.five_hour.as_ref(),
+        ContinuityOfferReason::RateLimitFailure => None,
     };
     let usage = observed.map_or_else(|| "unknown".to_owned(), percentage);
     let reset = observed.map_or(0, |window| window.resets_at);
@@ -991,6 +1227,15 @@ fn offer_context(offer: &ContinuityOffer) -> String {
         window = offer.reason.label(),
         target = offer.target.executable(),
     )
+}
+
+fn rescue_marker_exists(id: &str) -> bool {
+    continuity_directory().is_ok_and(|directory| {
+        directory
+            .join("rescue")
+            .join(format!("{id}.json"))
+            .is_file()
+    })
 }
 
 fn resolve_offer(explicit_offer_id: Option<&str>) -> Result<ContinuityOffer, ContinuityError> {

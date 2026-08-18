@@ -130,6 +130,8 @@ for (const requiredCopy of [
   "rebinder transfer --from claude --to codex",
   "rebinder transfer --from codex --to claude",
   "rebinder continuity enable claude --to codex",
+  "rebinder continuity rescue",
+  "rate_limit",
   "--recover-worktree",
   "both directions live",
   "private bounded checkpoint",

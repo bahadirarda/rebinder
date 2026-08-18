@@ -177,6 +177,15 @@ workspace, and process binding. It becomes actionable only after explicit user
 acceptance and may be declined without repeating during the same provider
 window.
 
+## Hard-Limit Rescue
+
+An out-of-band continuity offer created after a source harness reports an
+authoritative provider rate-limit failure. The failed model turn has no
+decision authority. Rebinder records and deduplicates the event, notifies the
+terminal, waits for the source process to exit, and asks the user locally before
+reusing the normal transfer adapter. A hard-limit rescue is a recovery fallback,
+not an automatic provider switch.
+
 ## Provenance
 
 Information describing the entities, activities, agents, tools, and transformations involved in producing session data.

@@ -24,8 +24,9 @@ pub use continuity::{
     DEFAULT_FIVE_HOUR_THRESHOLD, DEFAULT_SEVEN_DAY_THRESHOLD, LimitWindow, StatusLineRender,
     accept_continuity_offer, accepted_continuity_offer, accepted_offer_for_launch,
     claude_hook_output, continuity_status, decline_continuity_offer, disable_claude_continuity,
-    enable_claude_continuity, mark_continuity_offer_completed, new_continuity_launch_id,
-    process_claude_statusline,
+    enable_claude_continuity, mark_continuity_offer_asked, mark_continuity_offer_completed,
+    new_continuity_launch_id, process_claude_statusline, process_claude_stop_failure,
+    rescue_continuity_offer, rescue_offer_for_launch,
 };
 pub use export::{
     ExportError, ExportableSession, ExportedPackage, discover_exportable_sessions, export_session,

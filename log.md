@@ -19,6 +19,9 @@
 - Added a reversible Claude Code continuity plugin that observes documented
   five-hour and seven-day usage windows, asks once for consent, and lets the
   enclosing `rebinder claude` process open Codex after an accepted source exit.
+- Added authoritative Claude `StopFailure(rate_limit)` rescue with deduplicated
+  notification state, a safe-default local consent prompt, explicit
+  non-interactive approval, and no nested target TUI.
 
 ## 2026-08-17
 

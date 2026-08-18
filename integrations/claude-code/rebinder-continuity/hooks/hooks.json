@@ -1,5 +1,5 @@
 {
-  "description": "Injects a single consent-gated Rebinder handoff offer when an observed Claude.ai usage window crosses its configured threshold.",
+  "description": "Injects consent-gated proactive handoff offers and records authoritative Claude rate-limit failures for out-of-band rescue.",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -20,6 +20,19 @@
             "type": "command",
             "command": "rebinder",
             "args": ["continuity", "hook"],
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "matcher": "rate_limit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rebinder",
+            "args": ["continuity", "failure"],
             "timeout": 3
           }
         ]
