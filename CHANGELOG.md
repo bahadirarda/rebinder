@@ -6,6 +6,12 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 
 ## [Unreleased]
 
+## [0.20260818.2] - 2026-08-18
+
+### Changed
+
+- Preserve Claude user and assistant roles in context-safe Codex handoffs, upgrade legacy bindings into clean threads, ignore metadata-only source changes, and compact meaningful repeat updates before Rebinder opens Codex.
+
 ## [0.20260818.1] - 2026-08-18
 
 ### Changed
@@ -63,7 +69,8 @@ Releases use the calendar identity `0.YYYYMMDD.REVISION`.
 - Add the Calendar Versioning release ledger, native distribution foundation,
   and professional MVP documentation structure.
 
-[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.1...HEAD
+[Unreleased]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.2...HEAD
+[0.20260818.2]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.1...v0.20260818.2
 [0.20260818.1]: https://github.com/bahadirarda/rebinder/compare/v0.20260818.0...v0.20260818.1
 [0.20260818.0]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.5...v0.20260818.0
 [0.20260817.5]: https://github.com/bahadirarda/rebinder/compare/v0.20260817.4...v0.20260817.5
