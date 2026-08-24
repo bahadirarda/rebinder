@@ -28,6 +28,6 @@
     "version:packages": "bun scripts/release/version-packages.ts"
   },
   "devDependencies": {
-    "@changesets/cli": "3.0.0"
+    "@changesets/cli": "3.0.1"
   }
 }
